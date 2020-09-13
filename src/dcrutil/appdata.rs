@@ -48,7 +48,6 @@ pub fn app_data_dir(
     match dirs::home_dir() {
         Some(dir) => {
             return retrieve_from_os(
-                env::consts::OS,
                 dir.as_os_str().to_str().unwrap(), // ToDo: treat unwrap.
                 app_name,
                 roaming,
@@ -56,7 +55,7 @@ pub fn app_data_dir(
         }
 
         None => match env::var("HOME") {
-            Ok(val) => return retrieve_from_os(env::consts::OS, val.as_str(), app_name, roaming),
+            Ok(val) => return retrieve_from_os(val.as_str(), app_name, roaming),
 
             Err(e) => {
                 // If home dir is not found, return error so that caller can decide to set fixed path.
@@ -67,13 +66,12 @@ pub fn app_data_dir(
 }
 
 fn retrieve_from_os(
-    rust_os: &str,
     home_dir: &str,
-    app_name: &mut String,
+    app_name: &str,
     roaming: bool,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    match rust_os {
-        "window" => {
+    match env::consts::OS {
+        "windows" => {
             // Attempt to use the LOCALAPPDATA or APPDATA environment variable on
             // Windows.
             //
@@ -93,8 +91,8 @@ fn retrieve_from_os(
             if app_data.is_empty() || roaming {
                 match env::var("APPDATA") {
                     Ok(app_data) => {
-                        let app_name_upper = app_name.get_mut(..1).unwrap().to_uppercase()
-                            + app_name.get_mut(1..).unwrap(); // ToDo: Treat unwrap.
+                        let mut app_name_upper = String::from(app_name[..1].to_ascii_uppercase());
+                        app_name_upper.push_str(&app_name[1..]);
 
                         match env::join_paths([app_data, app_name_upper].iter()) {
                             Ok(val) => return Ok(val.into_string().unwrap()), // ToDo: Treat unwrap.
@@ -109,8 +107,8 @@ fn retrieve_from_os(
 
         "macos" => {
             if !home_dir.is_empty() {
-                let app_name_upper =
-                    app_name.get_mut(..1).unwrap().to_uppercase() + app_name.get_mut(1..).unwrap(); // ToDo: Treat unwrap.
+                let mut app_name_upper = String::from(app_name[..1].to_ascii_uppercase());
+                app_name_upper.push_str(&app_name[1..]);
 
                 let joined_path = Path::new(&home_dir)
                     .join("Library")
@@ -130,8 +128,8 @@ fn retrieve_from_os(
         }
 
         "plan9" => {
-            let app_name_lower =
-                app_name.get_mut(0..1).unwrap().to_lowercase() + app_name.get_mut(1..).unwrap(); // ToDo: Treat unwrap.
+            let mut app_name_lower = String::from(app_name[..1].to_ascii_lowercase());
+            app_name_lower.push_str(&app_name[1..]);
 
             let joined_path = Path::new(&home_dir).join(app_name_lower);
 
@@ -148,8 +146,8 @@ fn retrieve_from_os(
 
         _ => {
             if !home_dir.is_empty() {
-                let app_name_lower =
-                    app_name.get_mut(0..1).unwrap().to_lowercase() + app_name.get_mut(1..).unwrap(); // ToDo: Treat unwrap.
+                let mut app_name_lower = String::from(app_name[..1].to_ascii_lowercase());
+                app_name_lower.push_str(&app_name[1..]);
 
                 let mut dotted_path = String::from(".");
                 dotted_path.push_str(app_name_lower.as_str());
