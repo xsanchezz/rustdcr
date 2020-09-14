@@ -28,23 +28,23 @@ pub fn dial(config: &ConnConfig) -> Result<Box<WebSocketStream<client::AutoStrea
     todo!()
 }
 
-#[cfg(test)]
-mod tests {
+// #[cfg(test)]
+// mod tests {
 
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
+//     #[test]
+//     fn it_works() {
+//         assert_eq!(2 + 2, 4);
+//     }
 
-    #[test]
-    fn ws_dialler() {
-        // let config = ConnConfig {
-        //     host: String::from("localhost:9109"),
-        //     endpoint: String::from("ws"),
-        //     user: String::from("user"),
-        //     password: String::from("password"),
-        // };
+//     #[test]
+//     fn ws_dialler() {
+//         // let config = ConnConfig {
+//         //     host: String::from("localhost:9109"),
+//         //     endpoint: String::from("ws"),
+//         //     user: String::from("user"),
+//         //     password: String::from("password"),
+//         // };
 
-        // dial(&config).unwrap();
-    }
-}
+//         // dial(&config).unwrap();
+//     }
+// }

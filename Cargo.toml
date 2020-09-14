@@ -9,11 +9,12 @@ edition = "2018"
 criterion = "0.3"
 
 [[bench]]
-name = "benchmark"
+name = "benches"
 harness = false
-
+path = "benches/lib.rs"
 
 [dependencies]
 tokio-tungstenite = "0.11.0"
 dirs = "3.0.1"
 bitcoin = "*"
+warp = "*"
