@@ -75,6 +75,12 @@ impl<'a> DirData<'a> {
     }
 
     fn retrieve_from_os(self, home_dir: PathBuf) -> Option<PathBuf> {
+        let mut app_name_upper = String::from(self.app_name[..1].to_ascii_uppercase());
+        app_name_upper.push_str(&self.app_name[1..]);
+
+        let mut app_name_lower = String::from(self.app_name[..1].to_ascii_lowercase());
+        app_name_lower.push_str(&self.app_name[1..]);
+
         match self.os.as_str() {
             "windows" => {
                 // Attempt to use the LOCALAPPDATA or APPDATA environment variable on
@@ -95,24 +101,18 @@ impl<'a> DirData<'a> {
 
                 if app_data.is_empty() || self.roaming {
                     match env::var("APPDATA") {
-                        Ok(app_data) => {
-                            let mut app_name_upper =
-                                String::from(self.app_name[..1].to_ascii_uppercase());
-                            app_name_upper.push_str(&self.app_name[1..]);
-
-                            return Some(Path::new(&app_data).join(app_name_upper));
+                        Ok(val) => {
+                            app_data = val;
                         }
-
                         _ => return None,
                     }
                 }
+
+                return Some(Path::new(&app_data).join(app_name_upper));
             }
 
             "macos" => {
                 if !home_dir.as_os_str().is_empty() {
-                    let mut app_name_upper = String::from(self.app_name[..1].to_ascii_uppercase());
-                    app_name_upper.push_str(&self.app_name[1..]);
-
                     let joined_paths = Path::new(&home_dir)
                         .join("Library")
                         .join("Application Support")
@@ -123,17 +123,11 @@ impl<'a> DirData<'a> {
             }
 
             "plan9" => {
-                let mut app_name_lower = String::from(self.app_name[..1].to_ascii_lowercase());
-                app_name_lower.push_str(&self.app_name[1..]);
-
                 return Some(Path::new(&home_dir).join(app_name_lower));
             }
 
             _ => {
                 if !home_dir.as_os_str().is_empty() {
-                    let mut app_name_lower = String::from(self.app_name[..1].to_ascii_lowercase());
-                    app_name_lower.push_str(&self.app_name[1..]);
-
                     let mut dotted_path = String::from(".");
                     dotted_path.push_str(app_name_lower.as_str());
 
