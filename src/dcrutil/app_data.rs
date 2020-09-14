@@ -48,7 +48,7 @@ struct DirData<'a> {
     roaming: bool,
 }
 
-impl<'a> DirData<'a> {
+impl DirData<'_> {
     fn get_app_data_dir(self) -> Option<PathBuf> {
         if *self.app_name == "" || *self.app_name == "." {
             return Some(".".into());
@@ -123,16 +123,22 @@ impl<'a> DirData<'a> {
             }
 
             "plan9" => {
+                if !home_dir.as_os_str().is_empty() {
+                    return None;
+                }
+
                 return Some(Path::new(&home_dir).join(app_name_lower));
             }
 
             _ => {
                 if !home_dir.as_os_str().is_empty() {
-                    let mut dotted_path = String::from(".");
-                    dotted_path.push_str(app_name_lower.as_str());
-
-                    return Some(Path::new(&home_dir).join(dotted_path));
+                    return None;
                 }
+
+                let mut dotted_path = String::from(".");
+                dotted_path.push_str(app_name_lower.as_str());
+
+                return Some(Path::new(&home_dir).join(dotted_path));
             }
         }
 

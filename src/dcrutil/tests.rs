@@ -1,12 +1,16 @@
-use std::{env, path::PathBuf};
-
 #[cfg(test)]
 mod app_data_dir {
+    use std::{env, path::PathBuf};
+
     #[test]
     #[cfg(target_os = "macos")]
-    fn macos() {
+    fn get_app_dir() {
         let mut home_dir = dirs::home_dir().unwrap();
+
+        assert_eq!(home_dir.as_os_str().is_empty(), false);
+
         home_dir.push("Library/Application Support/Myapp");
+
         assert_eq!(
             Some(home_dir),
             crate::dcrutil::app_data::app_data_dir(&mut "myapp".into(), false)
@@ -15,8 +19,8 @@ mod app_data_dir {
 
     #[test]
     #[cfg(target_os = "windows")]
-    fn window_local() {
-        let home_dir = PathBuf::new("");
+    fn get_app_dir_local() {
+        let mut home_dir = PathBuf::new();
 
         // check if LocalAppData dir is available else use AppData instead.
         match env::var("LOCALAPPDATA") {
@@ -26,11 +30,11 @@ mod app_data_dir {
 
         // error if appdata is not found.
         if home_dir.as_os_str().is_empty() {
-            match env::var("APPDATA") {
-                Ok(val) => home_dir.push(val),
-                Err(e) => panic!("error getting definite path for window local, err: {}", e),
-            }
+            home_dir
+                .push(env::var("APPDATA").expect("error getting definite path for window local"))
         }
+
+        assert_eq!(home_dir.as_os_str().is_empty(), false);
 
         home_dir.push("Myapp");
 
@@ -42,19 +46,50 @@ mod app_data_dir {
 
     #[test]
     #[cfg(target_os = "windows")]
-    fn window_roaming() {
-        let home_dir = PathBuf::new();
+    fn get_app_dir_roaming() {
+        let mut home_dir = PathBuf::from(
+            env::var("APPDATA").expect("unable to find AppData dir on window roaming"),
+        );
 
-        match env::var("APPDATA") {
-            Ok(val) => home_dir.push(val),
-            Err(e) => panic!("unable to find AppData dir on window roaming, err: {}", e),
-        }
+        assert_eq!(home_dir.as_os_str().is_empty(), false);
 
         home_dir.push("Myapp");
 
         assert_eq!(
             Some(home_dir),
             crate::dcrutil::app_data::app_data_dir(&mut "myapp".into(), true)
+        )
+    }
+
+    #[test]
+    #[cfg(not(any(window, target_os = "macos", target_os = "plan9")))]
+    fn get_app_dir() {
+        let mut home_dir =
+            dirs::home_dir().expect("unable to find home directory in other OS arch");
+
+        assert_eq!(home_dir.as_os_str().is_empty(), false);
+
+        home_dir.push(".myapp");
+
+        assert_eq!(
+            Some(home_dir),
+            crate::dcrutil::app_data::app_data_dir(&mut "myapp".into(), false)
+        )
+    }
+
+    #[test]
+    #[cfg(target_os = "plan9")]
+    fn get_app_dir_() {
+        let mut home_dir =
+            dirs::home_dir().expect("unable to find home directory in other OS arch");
+
+        assert_eq!(home_dir.as_os_str().is_empty(), false);
+
+        home_dir.push("myapp");
+
+        assert_eq!(
+            Some(home_dir),
+            crate::dcrutil::app_data::app_data_dir(&mut "myapp".into(), false)
         )
     }
 }
