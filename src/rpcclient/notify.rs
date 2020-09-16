@@ -1,36 +1,48 @@
+use crate::rpcclient::constants;
 use std::collections::HashMap;
 
-const HashSize: i8 = 32;
-
+/// NotificationHandlers defines callback function pointers to invoke with
+/// notifications.  Since all of the functions are None by default, all
+/// notifications are effectively ignored until their handlers are set to a
+/// concrete callback.
 pub struct NotificationHandlers {
-    OnClientConnected: Option<fn()>,
+    pub on_client_connected: Option<fn()>,
 
-    OnBlockConnected: Option<fn(block_header: [u8], transactions: Vec<[u8]>)>,
+    pub on_block_connected: Option<fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>)>,
 
-    OnBlockDisconnected: Option<fn(block_header: [u8])>,
+    pub on_block_disconnected: Option<fn(block_header: [u8])>,
 
-    OnWork: Option<fn(data: [u8], target: [u8], reason: String)>,
+    pub on_work: Option<fn(data: [u8], target: [u8], reason: String)>,
 
-    OnRelevantTxAccepted: Option<fn(transaction: [u8])>,
+    pub on_relevant_tx_accepted: Option<fn(transaction: [u8])>,
 
-    OnReorganization: Option<
-        fn(old_hash: &[u8; HashSize], old_height: i32, new_hash: &[u8; HashSize], new_height: i32),
-    >,
-
-    OnWinningTickets: Option<fn(block_hash: i64, tickets: Vec<&[u8; HashSize]>)>,
-
-    OnSpentAndMissedTickets: Option<
+    pub on_reorganization: Option<
         fn(
-            hash: &[u8; HashSize],
-            height: i64,
-            stake_diff: i64,
-            tickets: HashMap<[u8; HashSize], bool>,
+            old_hash: &[u8; constants::HASH_SIZE],
+            old_height: i32,
+            new_hash: &[u8; constants::HASH_SIZE],
+            new_height: i32,
         ),
     >,
 
-    OnNewTickets: Option<fn(height: i64, stake_diff: i64, tickets: Vec<&[u8; HashSize]>)>,
+    pub on_winning_tickets:
+        Option<fn(block_hash: i64, tickets: Vec<&[u8; crate::rpcclient::constants::HASH_SIZE]>)>,
 
-    OnStakeDifficulty: Option<fn(hash: &[u8; HashSize], height: i64, stake_diff: i64)>,
+    pub on_spent_and_missed_tickets: Option<
+        fn(
+            hash: &[u8; constants::HASH_SIZE],
+            height: i64,
+            stake_diff: i64,
+            tickets: HashMap<[u8; constants::HASH_SIZE], bool>,
+        ),
+    >,
+
+    pub on_new_tickets:
+        Option<fn(height: i64, stake_diff: i64, tickets: Vec<&[u8; constants::HASH_SIZE]>)>,
+
+    pub on_stake_difficulty:
+        Option<fn(hash: &[u8; constants::HASH_SIZE], height: i64, stake_diff: i64)>,
+
     //  OnTxAccepted: Option<fn(hash: &[u8;HashSize], amount dcrutil.Amount)>
-    OnUnknownNotification: Option<fn(method: String, params: [u8])>,
+    pub on_unknown_notification: Option<fn(method: String, params: [u8])>,
 }
