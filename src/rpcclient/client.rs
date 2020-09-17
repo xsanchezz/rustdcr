@@ -2,8 +2,11 @@ use crate::{
     helper::error_helper,
     rpcclient::{connection, constants, notify},
 };
-use log::{debug, info, trace, warn};
-use std::{error, sync};
+use log::{debug, info, trace};
+use std::{
+    error,
+    sync::{mpsc, RwLock},
+};
 use tungstenite::{client::AutoStream, WebSocket};
 
 /// Creates a new RPC client based on the provided connection configuration
@@ -29,7 +32,7 @@ pub fn new(
         true => None,
     };
 
-    let (sender, receiver) = sync::mpsc::channel::<bool>();
+    let (sender, receiver) = mpsc::channel::<bool>();
 
     if !config.disable_connect_on_new {
         match sender.send(true) {
@@ -42,16 +45,16 @@ pub fn new(
     }
 
     let client = Client {
-        websocket_connection: sync::RwLock::new(websokcet_connection),
+        websocket_connection: RwLock::new(websokcet_connection),
 
-        disconnected: sync::RwLock::new(config.disable_connect_on_new),
+        disconnected: RwLock::new(config.disable_connect_on_new),
 
-        configuration: config,
-        notification_handler: sync::Mutex::new(notif_handler),
+        configuration: RwLock::new(config),
+        notification_handler: RwLock::new(notif_handler),
 
         connection_established: (sender, receiver),
-        disconnect: sync::mpsc::channel(),
-        shutdown: sync::mpsc::channel(),
+        disconnect: mpsc::channel(),
+        shutdown: mpsc::channel(),
     };
 
     client.start();
@@ -71,28 +74,30 @@ pub fn new(
 /// result of the invocation at some future time.  Invoking the Receive method on
 /// the returned future will block until the result is available if it's not
 /// already.
+///
+/// All field in client are async safe.
 pub struct Client {
     /// websocket connection to the underlying server, it is protected by a mutex lock.
-    websocket_connection: sync::RwLock<Option<WebSocket<AutoStream>>>, // ToDo: This could be expensive.
+    websocket_connection: RwLock<Option<WebSocket<AutoStream>>>, // ToDo: This could be expensive.
 
     /// Holds the connection configuration associated with the client.
-    configuration: connection::ConnConfig,
+    configuration: RwLock<connection::ConnConfig>,
 
-    /// Contains all notification callback functionsm it is protected by a mutex lock.
-    notification_handler: sync::Mutex<notify::NotificationHandlers>,
+    /// Contains all notification callback functions. It is protected by a mutex lock.
+    notification_handler: RwLock<notify::NotificationHandlers>,
 
     /// disconnected indicates whether the client is disconnected from the server.
-    disconnected: sync::RwLock<bool>,
+    disconnected: RwLock<bool>,
 
     /// connection_established is a network infrastructure that notifies all channel
     /// when the RPC serve is connected or disconnected.
-    connection_established: (sync::mpsc::Sender<bool>, sync::mpsc::Receiver<bool>),
+    connection_established: (mpsc::Sender<bool>, mpsc::Receiver<bool>),
 
     /// disconnect is a channel to websocket to disconnect from server.
-    disconnect: (sync::mpsc::Sender<bool>, sync::mpsc::Receiver<bool>),
+    disconnect: (mpsc::Sender<bool>, mpsc::Receiver<bool>),
 
     /// Broadcast shutdown command to channels so as to disconnect RPC server.
-    shutdown: (sync::mpsc::Sender<bool>, sync::mpsc::Receiver<bool>),
+    shutdown: (mpsc::Sender<bool>, mpsc::Receiver<bool>),
 }
 
 impl Client {
@@ -116,7 +121,7 @@ impl Client {
     pub(crate) fn start(&self) {
         trace!("Starting RPC client");
 
-        match self.notification_handler.lock() {
+        match self.notification_handler.read() {
             Ok(guard) => guard.on_client_connected.and_then(|on_client_connected| {
                 on_client_connected();
                 None::<bool>
