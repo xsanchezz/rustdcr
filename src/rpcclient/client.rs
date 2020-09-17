@@ -1,12 +1,63 @@
-use crate::rpcclient::{connection, notify};
+use crate::{
+    helper::error_helper,
+    rpcclient::{connection, constants, notify},
+};
+use log::{debug, info, trace, warn};
 use std::{error, sync};
+use tungstenite::{client::AutoStream, WebSocket};
 
 /// Creates a new RPC client based on the provided connection configuration
 /// details.  The notification handlers parameter may be None if you are not
 /// interested in receiving notifications and will be ignored if the
 /// configuration is set to run in HTTP POST mode.
 ///
-pub fn new(_: &connection::ConnConfig, _: Option<&notify::NotificationHandlers>) {}
+pub fn new(
+    mut config: connection::ConnConfig,
+    notif_handler: notify::NotificationHandlers,
+) -> Result<Client, String> {
+    let websokcet_connection = match config.disable_connect_on_new {
+        false => {
+            println!("Dialing RPC using websocket to host {}", config.host);
+
+            match config.dial_websocket() {
+                Ok(websocket) => Some(websocket),
+
+                Err(e) => return Err(e),
+            }
+        }
+
+        true => None,
+    };
+
+    let (sender, receiver) = sync::mpsc::channel::<bool>();
+
+    if !config.disable_connect_on_new {
+        match sender.send(true) {
+            Ok(_) => {
+                println!("Established connection to RPC server {}", config.host);
+            }
+
+            Err(e) => return Err(error_helper::new(constants::ERR_STARTING_CHANNEL, e.into())),
+        }
+    }
+
+    let client = Client {
+        websocket_connection: websokcet_connection,
+
+        disconnected: sync::RwLock::new(config.disable_connect_on_new),
+
+        configuration: config,
+        notification_handler: sync::Mutex::new(notif_handler),
+
+        connection_established: (sender, receiver),
+        disconnect: sync::mpsc::channel(),
+        shutdown: sync::mpsc::channel(),
+    };
+
+    client.start();
+
+    Ok(client)
+}
 
 /// Represents a Decred RPC client which allows easy access to the
 /// various RPC methods available on a Decred RPC server.  Each of the wrapper
@@ -22,12 +73,16 @@ pub fn new(_: &connection::ConnConfig, _: Option<&notify::NotificationHandlers>)
 /// already.
 ///
 pub struct Client {
-    pub(crate) connection: sync::Mutex<connection::ConnConfig>,
-    pub(crate) notification_handler: sync::Mutex<notify::NotificationHandlers>,
+    websocket_connection: Option<WebSocket<AutoStream>>,
 
-    pub(crate) connection_established: sync::RwLock<bool>,
-    pub(crate) disconnected: sync::RwLock<bool>,
-    pub(crate) shutdown: sync::RwLock<bool>,
+    configuration: connection::ConnConfig,
+    notification_handler: sync::Mutex<notify::NotificationHandlers>,
+
+    disconnected: sync::RwLock<bool>,
+
+    connection_established: (sync::mpsc::Sender<bool>, sync::mpsc::Receiver<bool>),
+    disconnect: (sync::mpsc::Sender<bool>, sync::mpsc::Receiver<bool>),
+    shutdown: (sync::mpsc::Sender<bool>, sync::mpsc::Receiver<bool>),
 }
 
 impl Client {
@@ -45,5 +100,19 @@ impl Client {
     ///
     pub fn connect(&self) -> Result<(), Box<dyn error::Error>> {
         todo!()
+    }
+
+    /// start begins processing input and output messages.
+    pub(crate) fn start(&self) {
+        trace!("Starting RPC client");
+
+        match self.notification_handler.lock() {
+            Ok(guard) => guard.on_client_connected.and_then(|on_client_connected| {
+                on_client_connected();
+                None::<bool>
+            }),
+
+            Err(_) => None, // ToDo: Return Err.
+        };
     }
 }

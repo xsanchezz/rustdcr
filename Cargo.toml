@@ -17,6 +17,10 @@ name = "benches"
 harness = false
 path = "benches/lib.rs"
 
+[[example]]
+name = "rpcclient"
+path = "examples/rpcclient.rs"
+
 [dependencies]
 dirs = "3.0.1"
 base64 = "0.12.3"
@@ -27,3 +31,5 @@ url = "*"
 httparse = "*"
 futures = "*"
 async-std = "1.6.3"
+log = "^0.4.11"
+socks = "*"

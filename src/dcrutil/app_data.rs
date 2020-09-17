@@ -32,7 +32,7 @@ use std::{
 ///   Windows: %LOCALAPPDATA%\Myapp
 ///
 ///   Plan 9: $home/myapp
-pub fn app_data_dir(app_name: &mut String, roaming: bool) -> Option<PathBuf> {
+pub fn get_app_data_dir(app_name: &mut String, roaming: bool) -> Option<PathBuf> {
     let dir_data = DirData {
         app_name: app_name,
         os: &env::consts::OS.to_string(),
