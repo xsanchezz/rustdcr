@@ -17,7 +17,7 @@ pub fn new(
 ) -> Result<Client, String> {
     let websokcet_connection = match config.disable_connect_on_new {
         false => {
-            println!("Dialing RPC using websocket to host {}", config.host);
+            info!("Dialing RPC using websocket to host {}", config.host);
 
             match config.dial_websocket() {
                 Ok(websocket) => Some(websocket),
@@ -34,7 +34,7 @@ pub fn new(
     if !config.disable_connect_on_new {
         match sender.send(true) {
             Ok(_) => {
-                println!("Established connection to RPC server {}", config.host);
+                info!("Established connection to RPC server {}", config.host);
             }
 
             Err(e) => return Err(error_helper::new(constants::ERR_STARTING_CHANNEL, e.into())),
@@ -42,7 +42,7 @@ pub fn new(
     }
 
     let client = Client {
-        websocket_connection: websokcet_connection,
+        websocket_connection: sync::RwLock::new(websokcet_connection),
 
         disconnected: sync::RwLock::new(config.disable_connect_on_new),
 
@@ -71,17 +71,27 @@ pub fn new(
 /// result of the invocation at some future time.  Invoking the Receive method on
 /// the returned future will block until the result is available if it's not
 /// already.
-///
 pub struct Client {
-    websocket_connection: Option<WebSocket<AutoStream>>,
+    /// websocket connection to the underlying server, it is protected by a mutex lock.
+    websocket_connection: sync::RwLock<Option<WebSocket<AutoStream>>>, // ToDo: This could be expensive.
 
+    /// Holds the connection configuration associated with the client.
     configuration: connection::ConnConfig,
+
+    /// Contains all notification callback functionsm it is protected by a mutex lock.
     notification_handler: sync::Mutex<notify::NotificationHandlers>,
 
+    /// disconnected indicates whether the client is disconnected from the server.
     disconnected: sync::RwLock<bool>,
 
+    /// connection_established is a network infrastructure that notifies all channel
+    /// when the RPC serve is connected or disconnected.
     connection_established: (sync::mpsc::Sender<bool>, sync::mpsc::Receiver<bool>),
+
+    /// disconnect is a channel to websocket to disconnect from server.
     disconnect: (sync::mpsc::Sender<bool>, sync::mpsc::Receiver<bool>),
+
+    /// Broadcast shutdown command to channels so as to disconnect RPC server.
     shutdown: (sync::mpsc::Sender<bool>, sync::mpsc::Receiver<bool>),
 }
 

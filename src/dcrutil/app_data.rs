@@ -1,5 +1,6 @@
 use std::{
     env,
+    ops::Add,
     path::{Path, PathBuf},
 };
 
@@ -21,7 +22,7 @@ use std::{
 /// # Example
 ///
 /// ```
-/// let dir = dcrdrs::dcrutil::app_data::app_data_dir(&mut "myapp".into(), false);
+/// let dir = dcrdrs::dcrutil::app_data::get_app_data_dir(&mut "myapp".into(), false);
 /// ```
 /// ## Gives
 ///
@@ -49,6 +50,7 @@ struct DirData<'a> {
 }
 
 impl DirData<'_> {
+    /// fetch dcrd app directory.
     fn get_app_data_dir(self) -> Option<PathBuf> {
         if *self.app_name == "" || *self.app_name == "." {
             return Some(".".into());
@@ -57,29 +59,31 @@ impl DirData<'_> {
         // Strip "." if caller prepend a period to path.
         match self.app_name.strip_prefix(".") {
             Some(value) => *self.app_name = value.into(),
+
             _ => {}
         }
 
         // Get the OS specific home directory.
         match dirs::home_dir() {
             Some(dir) => {
-                return self.retrieve_from_os(dir);
+                return self.retrieve_from_os(&dir);
             }
 
             None => match env::var("HOME") {
-                Ok(val) => return self.retrieve_from_os(val.into()),
+                Ok(val) => return self.retrieve_from_os(&val.into()),
 
                 _ => return None,
             },
         }
     }
 
-    fn retrieve_from_os(self, home_dir: PathBuf) -> Option<PathBuf> {
-        let mut app_name_upper = String::from(self.app_name[..1].to_ascii_uppercase());
-        app_name_upper.push_str(&self.app_name[1..]);
+    /// retrieves app patch using users os attributes.
+    fn retrieve_from_os(self, home_dir: &PathBuf) -> Option<PathBuf> {
+        let app_name_upper =
+            String::from(self.app_name[..1].to_ascii_uppercase()).add(&self.app_name[1..]);
 
-        let mut app_name_lower = String::from(self.app_name[..1].to_ascii_lowercase());
-        app_name_lower.push_str(&self.app_name[1..]);
+        let app_name_lower =
+            String::from(self.app_name[..1].to_ascii_lowercase()).add(&self.app_name[1..]);
 
         match self.os.as_str() {
             "windows" => {
@@ -96,6 +100,7 @@ impl DirData<'_> {
                     Ok(local_app_data_val) => {
                         app_data = local_app_data_val;
                     }
+
                     _ => {}
                 };
 
@@ -104,6 +109,7 @@ impl DirData<'_> {
                         Ok(val) => {
                             app_data = val;
                         }
+
                         _ => return None,
                     }
                 }

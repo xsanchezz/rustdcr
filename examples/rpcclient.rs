@@ -1,19 +1,17 @@
 use dcrdrs::{dcrutil::app_data, rpcclient};
-use std::{fs::read, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 fn main() {
+    // Get dcrd app directory, if none is found use current path.
     let mut app_dir = match app_data::get_app_data_dir(&mut "dcrd".into(), false) {
         Some(dir) => dir,
 
         None => PathBuf::new().join("."),
     };
 
-    println!("connecting");
     app_dir.push("rpc.cert");
 
-    println!("{}", app_dir.to_str().unwrap());
-
-    let certs = std::fs::read_to_string(app_dir).unwrap();
+    let certs = fs::read_to_string(app_dir).unwrap();
 
     let config = rpcclient::connection::ConnConfig {
         certificates: certs,
@@ -28,8 +26,6 @@ fn main() {
     };
 
     let _client = rpcclient::client::new(config, notif_handler).unwrap();
-    // String::from_utf8_lossy(read(app_dir).unwrap());
-    // dcrdrs::rpcclient::client::new(mut config, notif_handler)
 }
 
 fn block_connected() {
