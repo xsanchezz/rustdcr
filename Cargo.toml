@@ -20,6 +20,7 @@ path = "benches/lib.rs"
 [[example]]
 name = "rpcclient"
 path = "examples/rpcclient.rs"
+required-features = ["tokio"]
 
 [dependencies]
 dirs = "3.0.1"
@@ -33,3 +34,4 @@ futures = "*"
 async-std = "1.6.3"
 log = "^0.4.11"
 socks = "*"
+tokio = {version = "0.2", features = ["full"], optional = true}

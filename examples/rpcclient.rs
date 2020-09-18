@@ -1,7 +1,8 @@
 use dcrdrs::{dcrutil::app_data, rpcclient};
-use std::{fs, path::PathBuf};
+use std::{fs, future, path::PathBuf, thread, time};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Get dcrd app directory, if none is found use current path.
     let mut app_dir = match app_data::get_app_data_dir(&mut "dcrd".into(), false) {
         Some(dir) => dir,
@@ -25,9 +26,21 @@ fn main() {
         ..Default::default()
     };
 
-    let _client = rpcclient::client::new(config, notif_handler).unwrap();
+    let client = rpcclient::client::new(config, notif_handler).unwrap();
+
+    shutdown(&client).await;
+
+    client.wait_for_shutdown();
 }
 
 fn block_connected() {
     println!("works");
+}
+
+async fn shutdown(client: &rpcclient::client::Client) {
+    println!(" down");
+    thread::sleep(time::Duration::from_secs(10));
+    println!("shutting down");
+    client.shutdown();
+    println!("server shut down");
 }

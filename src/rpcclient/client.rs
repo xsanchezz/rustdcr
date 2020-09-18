@@ -1,11 +1,11 @@
 use crate::{
-    helper::error_helper,
+    helper::{error_helper, waitgroup},
     rpcclient::{connection, constants, notify},
 };
-use log::{debug, info, trace};
+use log::{info, trace, warn};
 use std::{
     error,
-    sync::{mpsc, RwLock},
+    sync::{mpsc, Arc, Condvar, Mutex, RwLock},
 };
 use tungstenite::{client::AutoStream, WebSocket};
 
@@ -18,43 +18,49 @@ pub fn new(
     mut config: connection::ConnConfig,
     notif_handler: notify::NotificationHandlers,
 ) -> Result<Client, String> {
-    let websokcet_connection = match config.disable_connect_on_new {
+    let client = match config.disable_connect_on_new {
         false => {
             info!("Dialing RPC using websocket to host {}", config.host);
 
-            match config.dial_websocket() {
-                Ok(websocket) => Some(websocket),
+            let websokcet = match config.dial_websocket() {
+                Ok(websocket) => websocket,
 
                 Err(e) => return Err(e),
+            };
+
+            let (conn_established_send, conn_established_recv) = mpsc::channel();
+            conn_established_send.send(true);
+
+            Client {
+                websocket_connection: Some(Mutex::new(websokcet)),
+
+                disconnected: RwLock::new(config.disable_connect_on_new),
+
+                configuration: RwLock::new(config),
+                notification_handler: RwLock::new(notif_handler),
+
+                connection_established: (conn_established_send, conn_established_recv),
+                disconnect: mpsc::channel(),
+                shutdown: mpsc::channel(),
+
+                waitgroup: waitgroup::WaitGroup::new(),
             }
         }
 
-        true => None,
-    };
+        true => Client {
+            websocket_connection: None,
 
-    let (sender, receiver) = mpsc::channel::<bool>();
+            disconnected: RwLock::new(config.disable_connect_on_new),
 
-    if !config.disable_connect_on_new {
-        match sender.send(true) {
-            Ok(_) => {
-                info!("Established connection to RPC server {}", config.host);
-            }
+            configuration: RwLock::new(config),
+            notification_handler: RwLock::new(notif_handler),
 
-            Err(e) => return Err(error_helper::new(constants::ERR_STARTING_CHANNEL, e.into())),
-        }
-    }
+            connection_established: mpsc::channel(),
+            disconnect: mpsc::channel(),
+            shutdown: mpsc::channel(),
 
-    let client = Client {
-        websocket_connection: RwLock::new(websokcet_connection),
-
-        disconnected: RwLock::new(config.disable_connect_on_new),
-
-        configuration: RwLock::new(config),
-        notification_handler: RwLock::new(notif_handler),
-
-        connection_established: (sender, receiver),
-        disconnect: mpsc::channel(),
-        shutdown: mpsc::channel(),
+            waitgroup: waitgroup::WaitGroup::new(),
+        },
     };
 
     client.start();
@@ -75,10 +81,10 @@ pub fn new(
 /// the returned future will block until the result is available if it's not
 /// already.
 ///
-/// All field in client are async safe.
+/// All field in `Client` are async safe.
 pub struct Client {
     /// websocket connection to the underlying server, it is protected by a mutex lock.
-    websocket_connection: RwLock<Option<WebSocket<AutoStream>>>, // ToDo: This could be expensive.
+    websocket_connection: Option<Mutex<WebSocket<AutoStream>>>, // ToDo: This could be expensive.
 
     /// Holds the connection configuration associated with the client.
     configuration: RwLock<connection::ConnConfig>,
@@ -98,6 +104,9 @@ pub struct Client {
 
     /// Broadcast shutdown command to channels so as to disconnect RPC server.
     shutdown: (mpsc::Sender<bool>, mpsc::Receiver<bool>),
+
+    /// Asynchronously blocks.
+    waitgroup: waitgroup::WaitGroup,
 }
 
 impl Client {
@@ -119,6 +128,8 @@ impl Client {
 
     /// start begins processing input and output messages.
     pub(crate) fn start(&self) {
+        self.waitgroup.add(1);
+
         trace!("Starting RPC client");
 
         match self.notification_handler.read() {
@@ -129,5 +140,50 @@ impl Client {
 
             Err(_) => None, // ToDo: Return Err.
         };
+    }
+
+    pub fn wait_for_shutdown(&self) {
+        self.waitgroup.wait();
+    }
+
+    pub fn shutdown(&self) {
+        let mut ws = match &self.websocket_connection {
+            Some(ws_lock) => match ws_lock.lock() {
+                Ok(ws) => ws,
+
+                Err(e) => {
+                    warn!("error closing websocket on shutdown, err: {}", e);
+                    self.waitgroup.wait();
+                    return;
+                }
+            },
+
+            None => {
+                self.waitgroup.wait();
+                return;
+            }
+        };
+
+        match ws.close(Some(tungstenite::protocol::CloseFrame {
+            reason: "Normal Closure".into(),
+            code: 1000.into(),
+        })) {
+            Ok(_) => loop {
+                match ws.write_pending() {
+                    Ok(_) => {
+                        break;
+                    }
+
+                    Err(e) => warn!(
+                        "error retrieve close success from websocket server, err: {}",
+                        e
+                    ),
+                }
+            },
+
+            Err(e) => warn!("error sending close command to websocket, err: {}", e),
+        };
+
+        self.waitgroup.done();
     }
 }
