@@ -1,5 +1,5 @@
 use dcrdrs::{dcrutil::app_data, rpcclient};
-use std::{fs, future, path::PathBuf, thread, time};
+use std::{fs, net, path::PathBuf, sync::Arc, task, thread, time};
 
 #[tokio::main]
 async fn main() {
@@ -27,9 +27,10 @@ async fn main() {
     };
 
     let client = rpcclient::client::new(config, notif_handler).unwrap();
+    let clone_cli = Arc::clone(&client);
 
-    shutdown(&client).await;
-
+    task::Poll::is_ready(shutdown(&client));
+    println!("waiting for shutdown!!!");
     client.wait_for_shutdown();
 }
 

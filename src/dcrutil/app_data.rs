@@ -33,32 +33,32 @@ use std::{
 ///   Windows: %LOCALAPPDATA%\Myapp
 ///
 ///   Plan 9: $home/myapp
-pub fn get_app_data_dir(app_name: &mut String, roaming: bool) -> Option<PathBuf> {
+pub fn get_app_data_dir(app_name: String, roaming: bool) -> Option<PathBuf> {
     let dir_data = DirData {
         app_name: app_name,
-        os: &env::consts::OS.to_string(),
+        os: env::consts::OS.to_string(),
         roaming: roaming,
     };
 
     dir_data.get_app_data_dir()
 }
 
-struct DirData<'a> {
-    os: &'a String,
-    app_name: &'a mut String,
+struct DirData {
+    os: String,
+    app_name: String,
     roaming: bool,
 }
 
-impl DirData<'_> {
+impl DirData {
     /// fetch dcrd app directory.
-    fn get_app_data_dir(self) -> Option<PathBuf> {
-        if *self.app_name == "" || *self.app_name == "." {
+    fn get_app_data_dir(mut self) -> Option<PathBuf> {
+        if self.app_name == "" || self.app_name == "." {
             return Some(".".into());
         }
 
         // Strip "." if caller prepend a period to path.
         match self.app_name.strip_prefix(".") {
-            Some(value) => *self.app_name = value.into(),
+            Some(value) => self.app_name = value.to_string(),
 
             _ => {}
         }
