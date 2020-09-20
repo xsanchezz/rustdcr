@@ -86,3 +86,29 @@ impl Default for NotificationHandlers {
         }
     }
 }
+
+pub(crate) struct NotificationState {
+    pub(crate) notify_blocks: bool,
+    pub(crate) notify_work: bool,
+    pub(crate) notify_winning_tickets: bool,
+    pub(crate) notify_spent_and_missed_tickets: bool,
+    pub(crate) notify_new_tickets: bool,
+    pub(crate) notify_stake_difficulty: bool,
+    pub(crate) notify_new_tx: bool,
+    pub(crate) notify_new_tx_verbose: bool,
+}
+
+impl Default for NotificationState {
+    fn default() -> Self {
+        NotificationState {
+            notify_blocks: false,
+            notify_work: false,
+            notify_winning_tickets: false,
+            notify_spent_and_missed_tickets: false,
+            notify_new_tickets: false,
+            notify_stake_difficulty: false,
+            notify_new_tx: false,
+            notify_new_tx_verbose: false,
+        }
+    }
+}

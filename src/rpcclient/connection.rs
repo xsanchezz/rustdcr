@@ -1,12 +1,12 @@
 use httparse::Status;
 use reqwest::header;
-use std::{
-    io::{Read, Write},
-    net::TcpStream,
-};
 
 use crate::{helper::error_helper, rpcclient::constants};
-use tungstenite::{client, WebSocket};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    net::TcpStream,
+};
+use tokio_tungstenite::{stream::Stream, MaybeTlsStream, WebSocketStream};
 
 /// Describes the connection configuration parameters for the client.
 #[derive(Debug)]
@@ -35,6 +35,14 @@ pub struct ConnConfig {
     /// to start the websocket.
     pub disable_connect_on_new: bool,
 
+    /// Instructs the client to run using multiple independent
+    /// connections issuing HTTP POST requests instead of using the default
+    /// of websockets.  Websockets are generally preferred as some of the
+    /// features of the client such as notifications only work with websockets,
+    /// however, not all servers support the websocket extensions, so this
+    /// flag can be set to true to use basic HTTP POST requests instead.
+    pub http_post_mode: bool,
+
     /// Strings for a PEM-encoded certificate chain used
     /// for the TLS connection.  It has no effect if the DisableTLS parameter
     /// is true.
@@ -56,6 +64,7 @@ impl Default for ConnConfig {
             certificates: String::new(),
             disable_connect_on_new: false,
             disable_tls: false,
+            http_post_mode: false,
             endpoint: String::from("ws"),
             host: "127.0.0.1:19109".to_string(),
             password: String::new(),
@@ -69,22 +78,27 @@ impl Default for ConnConfig {
 
 impl ConnConfig {
     /// Invokes a websocket stream to rpcclient using optional TLS and socks proxy.
-    pub fn dial_websocket(&mut self) -> Result<WebSocket<client::AutoStream>, String> {
+    pub async fn dial_websocket(
+        &mut self,
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, String> {
         let mut buffered_header = Vec::<u8>::new();
 
         let stream = match self.proxy_host.clone() {
             Some(proxy) => {
                 self.add_proxy_header(&mut buffered_header);
-                self.connect_stream(proxy.as_str())
+                self.connect_stream(proxy.as_str()).await
             }
 
-            None => self.connect_stream(self.host.clone().as_str()),
+            None => self.connect_stream(self.host.clone().as_str()).await,
         };
 
         match stream {
             Ok(mut stream) => {
                 if self.proxy_host.is_some() {
-                    match self.dial_connection(&mut buffered_header, &mut stream) {
+                    match self
+                        .dial_connection(&mut buffered_header, &mut stream)
+                        .await
+                    {
                         Ok(()) => {}
 
                         Err(e) => return Err(e.into()),
@@ -98,14 +112,15 @@ impl ConnConfig {
                 let enc = base64::encode(login.as_bytes());
                 let form = format!("Basic {}", enc);
 
-                let wrapped_request = tungstenite::handshake::client::Request::builder()
-                    .uri(host)
-                    .header(header::AUTHORIZATION, form)
-                    .body(());
+                let wrapped_request =
+                    tokio_tungstenite::tungstenite::handshake::client::Request::builder()
+                        .uri(host)
+                        .header(header::AUTHORIZATION, form)
+                        .body(());
 
                 match wrapped_request {
                     Ok(request) => {
-                        match tungstenite::client(request, stream) {
+                        match tokio_tungstenite::client_async(request, stream).await {
                             Ok(websokcet) => {
                                 return Ok(websokcet.0);
                             }
@@ -135,8 +150,8 @@ impl ConnConfig {
 
     /// Upgrades stream connection to a secured layer.
     /// Add to create stream from should be specified in addr parameter.
-    fn connect_stream(&mut self, addr: &str) -> Result<tungstenite::client::AutoStream, String> {
-        let tcp_stream = match TcpStream::connect(addr) {
+    async fn connect_stream(&mut self, addr: &str) -> Result<MaybeTlsStream<TcpStream>, String> {
+        let tcp_stream = match tokio::net::TcpStream::connect(addr).await {
             Ok(tcp_stream) => tcp_stream,
 
             Err(e) => {
@@ -148,7 +163,7 @@ impl ConnConfig {
         };
 
         if self.disable_tls {
-            return Ok(tungstenite::stream::Stream::Plain(tcp_stream));
+            return Ok(Stream::Plain(tcp_stream));
         }
 
         let mut tls_connector_builder = native_tls::TlsConnector::builder();
@@ -172,7 +187,11 @@ impl ConnConfig {
         }
 
         let wrapped_tls_stream = match tls_connector_builder.build() {
-            Ok(tls_connector) => tls_connector.connect(addr, tcp_stream),
+            Ok(tls_connector) => {
+                tokio_native_tls::TlsConnector::from(tls_connector)
+                    .connect(addr, tcp_stream)
+                    .await
+            }
 
             Err(e) => {
                 return Err(error_helper::new(
@@ -183,7 +202,7 @@ impl ConnConfig {
         };
 
         match wrapped_tls_stream {
-            Ok(tls_stream) => return Ok(tungstenite::stream::Stream::Tls(tls_stream)),
+            Ok(tls_stream) => return Ok(Stream::Tls(tls_stream)),
 
             Err(e) => {
                 return Err(error_helper::new(
@@ -224,12 +243,13 @@ impl ConnConfig {
 
     /// Dials stream connection, sending http header to stream if user is
     /// using a proxy server for websocket connection.
-    fn dial_connection(
+    async fn dial_connection(
         &self,
         buffered_header: &mut Vec<u8>,
-        stream: &mut tungstenite::client::AutoStream,
-    ) -> Result<(), String> {
-        match stream.write_all(buffered_header) {
+        stream: &mut MaybeTlsStream<TcpStream>,
+    ) -> Result<(), String>
+where {
+        match stream.write_all(buffered_header).await {
             Ok(_) => {}
 
             Err(e) => return Err(error_helper::new(constants::ERR_WRITE_STREAM, e.into())),
@@ -238,7 +258,7 @@ impl ConnConfig {
         let mut read_buffered = Vec::<u8>::new();
 
         loop {
-            match stream.read_to_end(&mut read_buffered) {
+            match stream.read_to_end(&mut read_buffered).await {
                 Ok(_) => {}
 
                 Err(e) => return Err(error_helper::new(constants::ERR_READ_STREAM, e.into())),
