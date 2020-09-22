@@ -15,6 +15,7 @@ use std::{
 use tokio::{net::TcpStream, sync::mpsc};
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
+pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 struct _Command {
     id: u64,
     user_channel: mpsc::Sender<Message>,
@@ -117,7 +118,10 @@ impl Client {
     /// to middleman to send next client command in queue. It is important to start an acknowledgement on start or error.
     ///
     /// `request_queue_updated` command is received when command queue has been updated and is to be sent to server.
-    /// request_queue_updated start up message queue retrieval when a success message_sent_acknowledgement has sent to middleman and queue has been emptied.
+    /// request_queue_updated start up message queue retrieval when a success message_sent_acknowledgement
+    /// has sent to middleman and queue has been emptied.
+    ///
+    /// `disconnect_cmd_rcv` handle websocket closure.
     ///
     /// When an RPC command is sent, an acknowledgement message is broadcasted to a middle man which either sends next rpc command
     /// in queue on success or resends last errored message on error, middle man also acknowledges user on queue update.
@@ -138,7 +142,7 @@ impl Client {
 
     /// Handles tunneling messages sent by RPC server from server to client. handle_websocket_in is non-blocking.
     ///
-    /// `websocket_rcv_msg_handler` tunnels received websocket message in an unbuffered channel so as to be processed by
+    /// `rcv_websocket_msg_handler` tunnels received websocket message in an unbuffered channel so as to be processed by
     /// `received_RPC_message_handler`.
     ///
     /// `websocket_read` continuosly reads messages received from server, if message received is `None` indicates
@@ -150,7 +154,7 @@ impl Client {
     ///
     /// `is_ws_disconnected` indicates if websocket is disconnected.
     ///
-    /// `ws_disconnected_acknowledgement` must be called in a non-async function, it is normally called in the Disconnect client command.
+    /// `ws_disconnected_acknowledgement` signals on normal websocket closure this normally returns a result when users calls the Disconnect command.
     ///
     /// `signal_ws_reconnect` signals websocket reconnect handler to create a new websocket connection and send new ws stream through receiving
     /// channels.
@@ -159,11 +163,9 @@ impl Client {
     /// If websocket disconnects either through a protocol error or a normal close, `handle_websocket_in` calls for a new websocket connection.
     #[inline]
     async fn _handle_websocket_in(
-        _websocket_rcv_msg_handler: mpsc::UnboundedSender<Message>,
-        _websocket_read: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-        _websocket_read_new: mpsc::Receiver<
-            SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-        >,
+        _rcv_websocket_msg_handler: mpsc::UnboundedSender<Message>,
+        _websocket_read: Websocket,
+        _websocket_read_new: mpsc::Receiver<Websocket>,
         _is_ws_disconnected: Arc<RwLock<bool>>,
         _ws_disconnected_acknowledgement: mpsc::Sender<()>,
         _signal_ws_reconnect: mpsc::Sender<()>,
@@ -203,7 +205,7 @@ impl Client {
     ///
     /// `receiver_channel_id_mapper` is a mapper that stores command channels against their ID.
     ///
-    /// On user request to server, command is converted to a message and a mpsc channel is created that updates the asynchronous command
+    /// On user rpc request to server, command is converted to a message and a mpsc channel is created that updates the client asynchronous command
     /// on success.
     /// If websocket disconnects either through a protocol error or a normal close, `ws_write_middleman` closes and has to be recalled to
     /// function.
@@ -235,20 +237,39 @@ impl Client {
         _is_ws_disconnected: Arc<RwLock<bool>>,
         _signal_ws_reconnect: mpsc::Sender<()>,
     ) {
+        todo!()
     }
 
+    /// Reconnects websocket on failure if user specifies Auto Connect as true.
+    ///
+    /// `config` contains websocket credentials for a reconnection.
+    ///
+    /// `ws_reconnect_signal` signals handler to initiate a websocket reconnection.
+    ///
+    /// `websocket_read_new` sends new websocket stream to handler.
+    ///
+    /// `ws_writer_new` sends new websocket writer to handler.
+    ///
+    /// On websocket disconnect a new websocket channel is to be created and sent across handler for
+    /// a successful reconnection. Reconnection is only called if Auto Connect is off.
     async fn _ws_reconnect_handler(
+        _config: Arc<connection::ConnConfig>,
         _ws_reconnect_signal: mpsc::Receiver<()>,
-        _websocket_read_new: mpsc::Sender<SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>>,
-        mut _ws_sender_new: mpsc::Sender<mpsc::Sender<Message>>,
+        _websocket_read_new: mpsc::Sender<Websocket>,
+        mut _ws_writer_new: mpsc::Sender<mpsc::Sender<Message>>,
     ) {
+        todo!()
     }
 
     /// Disconnects RPC server, deletes command queue and errors any pending request by client.
-    pub fn disconnect(&self) {}
+    pub fn disconnect(&self) {
+        todo!()
+    }
 
     /// Return websocket disconnected state to webserver.
-    pub fn disconnected(&self) {}
+    pub fn disconnected(&self) {
+        todo!()
+    }
 
     pub fn wait_for_shutdown(&self) {
         self.waitgroup.wait();
