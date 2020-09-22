@@ -2,16 +2,18 @@ use httparse::Status;
 use reqwest::header;
 
 use crate::{helper::error_helper, rpcclient::constants};
+use futures::{stream::SplitStream, StreamExt};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
+    sync::mpsc,
 };
-use tokio_tungstenite::{stream::Stream, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{stream::Stream, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 /// Describes the connection configuration parameters for the client.
 #[derive(Debug)]
 pub struct ConnConfig {
-    /// It is full websocket url which consists host and port.
+    /// Full websocket url which consists host and port.
     pub host: String,
 
     /// Username to authenticate to the RPC server.
@@ -22,26 +24,6 @@ pub struct ConnConfig {
 
     /// Usually specified as `ws`.
     pub endpoint: String,
-
-    /// Specifies whether transport layer security should be
-    /// disabled.  It is recommended to always use TLS if the RPC server
-    /// supports it as otherwise your username and password is sent across
-    /// the wire in cleartext.
-    pub disable_tls: bool,
-
-    /// Specifies that a websocket client connection should not be started
-    /// when creating the client with `rpcclient::client::new`. Instead, the
-    /// client is created and returned unconnected. `Connect` method must be called
-    /// to start the websocket.
-    pub disable_connect_on_new: bool,
-
-    /// Instructs the client to run using multiple independent
-    /// connections issuing HTTP POST requests instead of using the default
-    /// of websockets.  Websockets are generally preferred as some of the
-    /// features of the client such as notifications only work with websockets,
-    /// however, not all servers support the websocket extensions, so this
-    /// flag can be set to true to use basic HTTP POST requests instead.
-    pub http_post_mode: bool,
 
     /// Strings for a PEM-encoded certificate chain used
     /// for the TLS connection.  It has no effect if the DisableTLS parameter
@@ -56,6 +38,29 @@ pub struct ConnConfig {
 
     /// Password to connect to proxy.
     pub proxy_password: String,
+
+    /// Specifies whether transport layer security should be
+    /// disabled.  It is recommended to always use TLS if the RPC server
+    /// supports it as otherwise your username and password is sent across
+    /// the wire in cleartext.
+    pub disable_tls: bool,
+
+    /// Specifies that a websocket client connection should not be started
+    /// when creating the client with `rpcclient::client::new`. Instead, the
+    /// client is created and returned unconnected. `Connect` method must be called
+    /// to start the websocket.
+    pub disable_connect_on_new: bool,
+
+    /// Disable reconnection if websocket fails.
+    pub disable_auto_reconnect: bool,
+
+    /// Instructs the client to run using multiple independent
+    /// connections issuing HTTP POST requests instead of using the default
+    /// of websockets.  Websockets are generally preferred as some of the
+    /// features of the client such as notifications only work with websockets,
+    /// however, not all servers support the websocket extensions, so this
+    /// flag can be set to true to use basic HTTP POST requests instead.
+    pub http_post_mode: bool,
 }
 
 impl Default for ConnConfig {
@@ -65,6 +70,7 @@ impl Default for ConnConfig {
             disable_connect_on_new: false,
             disable_tls: false,
             http_post_mode: false,
+            disable_auto_reconnect: false,
             endpoint: String::from("ws"),
             host: "127.0.0.1:19109".to_string(),
             password: String::new(),
@@ -77,8 +83,37 @@ impl Default for ConnConfig {
 }
 
 impl ConnConfig {
+    /// Creates a websocket connection and returns a websocket write feeder and a websocket reader. An asynchronous
+    /// thread is spawn to forward messages sent from the ws_write feeder.
+    async fn ws_split_stream(
+        &mut self,
+    ) -> Result<
+        (
+            SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+            mpsc::Sender<Message>,
+        ),
+        String,
+    > {
+        let ws = match self.dial_websocket().await {
+            Ok(ws) => ws,
+
+            Err(e) => return Err(e),
+        };
+
+        // Split websocket to a sink which sends websocket messages to server and a stream which receives websocket messages.
+        let (ws_sender, ws_receiver) = ws.split();
+
+        // A bounded channel that forwards messages to the websocket sender.
+        let (ws_tx, ws_rx) = mpsc::channel(1);
+
+        // websocket receiver ws_rx is consumed here and is closed if websocket is closed.
+        tokio::spawn(ws_rx.map(Ok).forward(ws_sender));
+
+        Ok((ws_receiver, ws_tx))
+    }
+
     /// Invokes a websocket stream to rpcclient using optional TLS and socks proxy.
-    pub async fn dial_websocket(
+    async fn dial_websocket(
         &mut self,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, String> {
         let mut buffered_header = Vec::<u8>::new();

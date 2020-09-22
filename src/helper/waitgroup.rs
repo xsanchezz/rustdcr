@@ -11,14 +11,14 @@ struct WaitGroupImpl {
     count: Mutex<usize>,
 }
 
-impl WaitGroup {
-    pub fn new() -> WaitGroup {
-        WaitGroup(Arc::new(WaitGroupImpl {
-            cond: Condvar::new(),
-            count: Mutex::new(0),
-        }))
-    }
+pub fn new() -> WaitGroup {
+    WaitGroup(Arc::new(WaitGroupImpl {
+        cond: Condvar::new(),
+        count: Mutex::new(0),
+    }))
+}
 
+impl WaitGroup {
     pub fn add(&self, delta: usize) {
         let mut count = self.0.count.lock().unwrap();
         *count += delta;
@@ -64,7 +64,7 @@ mod tests {
     use std::thread;
     #[test]
     fn it_work() {
-        let wg = WaitGroup::new();
+        let wg = new();
         let v = vec![1, 2, 3, 4, 5];
         wg.add(v.len());
         for _ in v {
