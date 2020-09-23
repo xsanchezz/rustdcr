@@ -3,7 +3,9 @@ use crate::{
     rpcclient::{connection, notify},
 };
 
-use async_std::sync::{Arc, RwLock};
+use log::warn;
+
+use async_std::sync::{Arc, Mutex, RwLock};
 
 use futures::stream::SplitStream;
 use std::{
@@ -253,12 +255,51 @@ impl Client {
     /// On websocket disconnect a new websocket channel is to be created and sent across handler for
     /// a successful reconnection. Reconnection is only called if Auto Connect is off.
     async fn _ws_reconnect_handler(
-        _config: Arc<connection::ConnConfig>,
-        _ws_reconnect_signal: mpsc::Receiver<()>,
-        _websocket_read_new: mpsc::Sender<Websocket>,
-        mut _ws_writer_new: mpsc::Sender<mpsc::Sender<Message>>,
+        config: Arc<Mutex<connection::ConnConfig>>,
+        mut ws_reconnect_signal: mpsc::Receiver<()>,
+        mut websocket_read_new: mpsc::Sender<Websocket>,
+        mut ws_writer_new: mpsc::Sender<mpsc::Sender<Message>>,
     ) {
-        todo!()
+        while let Some(_) = ws_reconnect_signal.recv().await {
+            loop {
+                let (ws_rcv, ws_writer) = match config.lock().await.ws_split_stream().await {
+                    Ok(ws) => ws,
+
+                    Err(e) => {
+                        warn!("unable to reconnect websocket, error: {}", e);
+                        continue;
+                    }
+                };
+
+                match websocket_read_new.send(ws_rcv).await {
+                    Ok(_) => {}
+
+                    // It is assumed websocket channels are closed, so handler is closed.
+                    Err(e) => {
+                        warn!(
+                            "websocket reconnect handler closed on websocket_read, error: {}",
+                            e
+                        );
+                        return;
+                    }
+                };
+
+                match ws_writer_new.send(ws_writer).await {
+                    Ok(_) => {
+                        // Wait for next WS reconnect call.
+                        break;
+                    }
+
+                    Err(e) => {
+                        warn!(
+                            "websocket reconnect handler closed on ws_writer send, error: {}",
+                            e
+                        );
+                        return;
+                    }
+                };
+            }
+        }
     }
 
     /// Disconnects RPC server, deletes command queue and errors any pending request by client.

@@ -85,7 +85,7 @@ impl Default for ConnConfig {
 impl ConnConfig {
     /// Creates a websocket connection and returns a websocket write feeder and a websocket reader. An asynchronous
     /// thread is spawn to forward messages sent from the ws_write feeder.
-    async fn ws_split_stream(
+    pub async fn ws_split_stream(
         &mut self,
     ) -> Result<
         (
