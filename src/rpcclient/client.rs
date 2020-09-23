@@ -18,6 +18,7 @@ use tokio::{net::TcpStream, sync::mpsc};
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
+
 struct _Command {
     id: u64,
     user_channel: mpsc::Sender<Message>,
@@ -54,7 +55,7 @@ pub async fn new(
         match config.ws_split_stream().await {
             Ok(ws) => {
                 client
-                    ._start_ws(ws_rcv_chan_rcv, disconnect_ws_rcv, ws)
+                    ._ws_handler(ws_rcv_chan_rcv, disconnect_ws_rcv, ws)
                     .await;
             }
 
@@ -140,6 +141,7 @@ impl Client {
         let (disconnect_ws_send, disconnect_ws_rcv) = mpsc::channel(1);
 
         self.waitgroup.add(1);
+
         self._websocket_receiver_channel = ws_rcv_chan_send;
         self._disconnect_ws = disconnect_ws_send;
 
@@ -152,14 +154,15 @@ impl Client {
         drop(config);
         drop(is_ws_disconnected);
 
-        self._start_ws(ws_rcv_chan_rcv, disconnect_ws_rcv, ws).await;
+        self._ws_handler(ws_rcv_chan_rcv, disconnect_ws_rcv, ws)
+            .await;
 
         self.waitgroup.done();
         todo!()
     }
 
-    /// Initiates websocket connection to RPC server.
-    pub(crate) async fn _start_ws(
+    /// Handles websocket connection to server by calling selective function to handle websocket send, write and reconnect.
+    pub(crate) async fn _ws_handler(
         &mut self,
         ws_rcv_chan_rcv: mpsc::Receiver<Message>,
         disconnect_ws_cmd_rcv: mpsc::Receiver<()>,
@@ -320,7 +323,11 @@ impl Client {
         mut ws_writer_new: mpsc::Sender<mpsc::Sender<Message>>,
     ) {
         while let Some(_) = ws_reconnect_signal.recv().await {
+            let mut backoff = std::time::Duration::new(0, 0);
+
             loop {
+                backoff = backoff + crate::rpcclient::constants::ConnectionRetryIntervalSecs;
+
                 let (ws_rcv, ws_writer) = match config.lock().await.ws_split_stream().await {
                     Ok(ws) => ws,
 
@@ -346,6 +353,7 @@ impl Client {
                 match ws_writer_new.send(ws_writer).await {
                     Ok(_) => {
                         // Wait for next WS reconnect call.
+                        std::thread::sleep(backoff);
                         break;
                     }
 

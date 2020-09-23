@@ -1,4 +1,6 @@
 pub(crate) const HASH_SIZE: usize = 32;
+pub(crate) const ConnectionRetryIntervalSecs: std::time::Duration =
+    std::time::Duration::from_secs(5);
 
 pub(crate) const ERR_COULD_NOT_GENERATE_TLS_HANDSHAKE: &str = "could not generate tls handshake";
 pub(crate) const ERR_COULD_NOT_CREATE_TLS_STREAM: &str = "could not create tls stream";

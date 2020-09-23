@@ -282,8 +282,7 @@ impl ConnConfig {
         &self,
         buffered_header: &mut Vec<u8>,
         stream: &mut MaybeTlsStream<TcpStream>,
-    ) -> Result<(), String>
-where {
+    ) -> Result<(), String> {
         match stream.write_all(buffered_header).await {
             Ok(_) => {}
 
