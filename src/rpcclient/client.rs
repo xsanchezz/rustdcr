@@ -32,7 +32,37 @@ pub async fn new(
     _config: connection::ConnConfig,
     _notif_handler: notify::NotificationHandlers,
 ) -> Result<Client, String> {
-    todo!()
+    let (ws_rcv_chan_send, ws_rcv_chan_rcv) = mpsc::channel(1);
+    let (disconnect_ws_send, disconnect_ws_rcv) = mpsc::channel(1);
+
+    let mut client = Client {
+        _id: AtomicU64::new(0),
+        _configuration: Arc::new(RwLock::new(_config)),
+        _disconnect_ws: disconnect_ws_send,
+        _is_ws_disconnected: Arc::new(RwLock::new(true)),
+        _notification_handler: Arc::new(_notif_handler),
+        _notification_state: Arc::new(RwLock::new(notify::NotificationState::default())),
+        _receiver_channel_id_mapper: Arc::new(RwLock::new(HashMap::new())),
+        _requests_queue_container: Arc::new(RwLock::new(VecDeque::new())),
+        _websocket_receiver_channel: ws_rcv_chan_send,
+        waitgroup: waitgroup::new(),
+    };
+
+    let config = client._configuration.clone();
+    let mut config = config.write().await;
+    if config.disable_connect_on_new && !config.http_post_mode {
+        match config.ws_split_stream().await {
+            Ok(ws) => {
+                client
+                    ._start_ws(ws_rcv_chan_rcv, disconnect_ws_rcv, ws)
+                    .await;
+            }
+
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(client)
 }
 
 /// Represents a Decred RPC client which allows easy access to the
@@ -57,7 +87,7 @@ pub struct Client {
     _websocket_receiver_channel: mpsc::Sender<Message>,
 
     /// Holds the connection configuration associated with the client.
-    _configuration: Arc<connection::ConnConfig>,
+    _configuration: Arc<RwLock<connection::ConnConfig>>,
 
     /// Contains all notification callback functions. It is protected by a mutex lock.
     /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
@@ -65,7 +95,7 @@ pub struct Client {
 
     /// Stores current state of notification handlers so that they can be re-registered on
     /// websocket disconnect.
-    _notification_state: Arc<notify::NotificationState>,
+    _notification_state: Arc<RwLock<notify::NotificationState>>,
 
     /// Stores all requests to be be sent to the RPC server.
     _requests_queue_container: Arc<RwLock<VecDeque<Message>>>,
@@ -79,10 +109,6 @@ pub struct Client {
 
     /// A channel that calls for disconnection of websocket connection.
     _disconnect_ws: mpsc::Sender<()>,
-
-    /// Broadcast shutdown command to channels so as to disconnect RPC server.
-    /// On shutdown all unsent RPC commands are cleared off from queue.
-    _shutdown: (mpsc::UnboundedSender<bool>, mpsc::UnboundedReceiver<bool>),
 
     /// Asynchronously blocks.
     waitgroup: waitgroup::WaitGroup,
@@ -99,13 +125,46 @@ impl Client {
     /// connection has already been established, or if none of the connection
     /// attempts were successful. The client will be shut down when the passed
     /// context is terminated.
-    pub fn connect(&self) -> Result<(), Box<dyn error::Error>> {
+    pub async fn connect(&mut self) -> Result<(), String> {
+        let mut config = self._configuration.write().await;
+        if config.http_post_mode {
+            return Err("Not websocket".into());
+        }
+
+        let is_ws_disconnected = self._is_ws_disconnected.read().await;
+        if *is_ws_disconnected == false {
+            return Err("Already connected".into());
+        }
+
+        let (ws_rcv_chan_send, ws_rcv_chan_rcv) = mpsc::channel(1);
+        let (disconnect_ws_send, disconnect_ws_rcv) = mpsc::channel(1);
+
+        self.waitgroup.add(1);
+        self._websocket_receiver_channel = ws_rcv_chan_send;
+        self._disconnect_ws = disconnect_ws_send;
+
+        let ws = match config.ws_split_stream().await {
+            Ok(ws) => ws,
+
+            Err(e) => return Err(e),
+        };
+
+        drop(config);
+        drop(is_ws_disconnected);
+
+        self._start_ws(ws_rcv_chan_rcv, disconnect_ws_rcv, ws).await;
+
+        self.waitgroup.done();
         todo!()
     }
 
     /// Initiates websocket connection to RPC server.
-    pub(crate) async fn _start_ws(&self) {
-        todo!()
+    pub(crate) async fn _start_ws(
+        &mut self,
+        ws_rcv_chan_rcv: mpsc::Receiver<Message>,
+        disconnect_ws_cmd_rcv: mpsc::Receiver<()>,
+        split_stream: (Websocket, mpsc::Sender<Message>),
+    ) {
     }
 
     /// Handles sending commands to RPC server through websocket. websocket_out is a `non-blocking` command.
@@ -272,7 +331,7 @@ impl Client {
                 };
 
                 match websocket_read_new.send(ws_rcv).await {
-                    Ok(_) => {}
+                    Ok(_) => {} // Fallthrough to ws_writer_new send.
 
                     // It is assumed websocket channels are closed, so handler is closed.
                     Err(e) => {
@@ -317,6 +376,8 @@ impl Client {
     }
 
     /// Clear queue, error commands channels and close websocket connection normally.
+    /// Shutdown broadcasts a disconnect command to websocket continuosly and waits for waitgroup block to be
+    /// closed before exiting.
     pub fn shutdown(&self) {
         todo!()
     }
