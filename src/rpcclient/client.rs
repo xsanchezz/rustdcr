@@ -185,6 +185,13 @@ impl Client {
     /// `user_command` is a receiving channel that channels processed RPC command from client.
     ///
     /// `disconnect_ws_cmd_rcv` is a channel that receives websocket disconnect from client.
+    ///
+    /// `ws_disconnect_acknowledgement` is a channel that sends websocket disconnect success message back to client.
+    ///
+    /// `split_stream` is a tuple that contains websocket stream for reading websocket messages and a channel to tunnel messages
+    /// to websocket writer `Sink`.
+    ///
+    /// All websocket connection is implemented in this function and all child functions are spawned asynchronously.
     pub(crate) async fn ws_handler(
         &mut self,
         user_command: mpsc::Receiver<_Command>,
@@ -333,7 +340,7 @@ impl Client {
     /// Messages received are unmarshalled and ID gotten, ID is mapped to get client command sender channel.
     /// Sender channel is `disconnected` immediately message is sent to client.
     /// If websocket disconnects either through a protocol error or a normal close, `handle_received_message` closes and has to be recalled to
-    /// function
+    /// function.
     async fn _handle_received_message(
         _rcvd_msg_consumer: mpsc::UnboundedReceiver<Message>,
         _receiver_channel_id_mapper: Arc<RwLock<HashMap<u64, mpsc::Sender<Message>>>>,
