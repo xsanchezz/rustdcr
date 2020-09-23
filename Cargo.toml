@@ -35,7 +35,7 @@ futures = "*"
 async-std = "1.6.3"
 log = "^0.4.11"
 socks = "*"
-tokio = "*"
+tokio = { version = "^0.2", features = ["full"] }
 tokio-native-tls = "^0.1.0"
 serde_json = "*"
 serde = { version = "1.0", features = ["derive"] }

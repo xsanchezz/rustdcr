@@ -3,21 +3,28 @@ use crate::{
     rpcclient::{connection, notify},
 };
 
-use log::warn;
+use log::{info, warn};
 
 use async_std::sync::{Arc, Mutex, RwLock};
 
-use futures::stream::SplitStream;
+use futures::stream::{SplitStream, StreamExt};
 use std::{
     collections::{HashMap, VecDeque},
-    error,
     sync::atomic::AtomicU64,
 };
 
-use tokio::{net::TcpStream, sync::mpsc};
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio::{net::TcpStream, sync::mpsc, time};
+use tokio_tungstenite::{
+    tungstenite::Error as WSError, tungstenite::Message, MaybeTlsStream, WebSocketStream,
+};
 
 pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
+
+/// SendBufferSize is the number of elements the websocket send channel
+/// can queue before blocking.
+const SEND_BUFFER_SIZE: usize = 50;
+
+const KEEP_ALIVE: u64 = 5;
 
 pub(crate) struct _Command {
     pub id: u64,
@@ -33,7 +40,7 @@ pub async fn new(
     _config: connection::ConnConfig,
     _notif_handler: notify::NotificationHandlers,
 ) -> Result<Client, String> {
-    let (ws_rcv_chan_send, ws_rcv_chan_rcv) = mpsc::channel(1);
+    let (ws_rcv_chan_send, ws_rcv_chan_rcv) = mpsc::channel(SEND_BUFFER_SIZE);
     let (disconnect_ws_send, disconnect_ws_rcv) = mpsc::channel(1);
     let ws_disconnect_acknowledgement = mpsc::channel(1);
 
@@ -143,7 +150,7 @@ impl Client {
             return Err("Not websocket".into());
         }
 
-        let is_ws_disconnected = self._is_ws_disconnected.read().await;
+        let mut is_ws_disconnected = self._is_ws_disconnected.write().await;
         if *is_ws_disconnected == false {
             return Err("Already connected".into());
         }
@@ -163,6 +170,8 @@ impl Client {
 
             Err(e) => return Err(e),
         };
+
+        *is_ws_disconnected = false;
 
         drop(config);
         drop(is_ws_disconnected);
@@ -224,7 +233,7 @@ impl Client {
 
         let signal_ws_reconnect = mpsc::channel(1);
 
-        let websocket_in = Self::_handle_websocket_in(
+        let websocket_in = Self::handle_websocket_in(
             handle_rcvd_msg.0,
             split_stream.0,
             new_ws_reader.1,
@@ -287,27 +296,127 @@ impl Client {
     /// function. Ping commands are sent at intervals.
     #[inline]
     async fn _handle_websocket_out(
-        mut _ws_sender: mpsc::Sender<Message>,
-        mut _ws_sender_new: mpsc::Receiver<mpsc::Sender<Message>>,
-        mut _queue_command: mpsc::Receiver<Message>,
-        mut _message_sent_acknowledgement: mpsc::Sender<Result<(), Message>>,
-        mut _request_queue_updated: mpsc::Receiver<()>,
-        _disconnect_cmd_rcv: mpsc::Receiver<()>,
+        mut ws_sender: mpsc::Sender<Message>,
+        mut ws_sender_new: mpsc::Receiver<mpsc::Sender<Message>>,
+        mut queue_command: mpsc::Receiver<Message>,
+        mut message_sent_acknowledgement: mpsc::Sender<Result<(), Message>>,
+        mut request_queue_updated: mpsc::Receiver<()>,
+        mut disconnect_cmd_rcv: mpsc::Receiver<()>,
     ) {
-        todo!()
+        let send_ack = |mut msg_ack: mpsc::Sender<Result<(), Message>>| async move {
+            match msg_ack.send(Ok(())).await {
+                Ok(_) => {}
+
+                Err(e) => panic!("error sending websocket open acknowledgement, error: {}", e),
+            };
+        };
+
+        send_ack(message_sent_acknowledgement.clone()).await;
+
+        let mut delay = time::delay_for(tokio::time::Duration::from_secs(KEEP_ALIVE));
+        let mut ping_sender = ws_sender.clone();
+
+        // ToDo: What happens if auto disconnect is disabled????
+        loop {
+            tokio::select! {
+                _ = disconnect_cmd_rcv.recv()=>{
+                    match ws_sender.send(Message::Close(None)).await{
+                        Ok(_) => break,
+
+                        Err(e) => {
+                            panic!(
+                                "error sending close message to websocket, error: {}",
+                                e
+                            );
+                        }
+                    };
+                }
+
+                // A ping command is sent to server if no RPC command is sent within time frame of 5secs.
+                // This is to keep alive connection between websocket server and client.
+                _ = &mut delay => {
+                    match ping_sender.send(Message::Ping(Vec::new())).await {
+                        Ok(_) => {
+                            delay.reset(time::Instant::now() + time::Duration::from_secs(KEEP_ALIVE));
+                            continue;
+                        },
+
+                        Err(e) => panic!("error sending ping message, error: {}", e),
+                    };
+                }
+
+                e = request_queue_updated.recv() => {
+                    match e {
+                        Some(_) => send_ack(message_sent_acknowledgement.clone()).await,
+
+                        None => {
+                            panic!("request_queue_update receiver channel closed")
+                        }
+                    }
+                }
+
+                new_ws = ws_sender_new.recv()=>{
+                    match new_ws {
+                        Some(new_ws)=>{
+                            ping_sender = new_ws.clone();
+                            ws_sender = new_ws;
+                        }
+
+                        None => {
+                            // If ws_sender_new closes, it is assumed auto connect is disabled on websocket failure.
+                            // Exiting handle_websocket_out.
+                            warn!("websocket disconnected");
+                            return;
+                        }
+                    }
+                }
+
+                msg = queue_command.recv()=>{
+                    match msg {
+                        Some(msg) => match ws_sender.send(msg).await {
+                            Ok(_) => match message_sent_acknowledgement.send(Ok(())).await {
+                                Ok(_) => continue,
+
+                                Err(e) => {
+                                    panic!(
+                                        "error sending message sent acknowledgement success to websocket, error: {}",
+                                        e
+                                    );
+                                }
+                            },
+
+                            // On error indicates either a protocol error or websocket closing normally, command is sent back to queue
+                            // and websocket i
+                            Err(e) => match message_sent_acknowledgement.send(Err(e.0)).await {
+                                Ok(_) => continue,
+
+                                Err(e) => panic!(
+                                    "error sending message sent acknowledgement error to websocket, error: {}",
+                                    e
+                                ),
+                            },
+                        },
+
+                        None => {
+                            panic!("command queue receiver closed abruptly");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Handles tunneling messages sent by RPC server from server to client. handle_websocket_in is non-blocking.
     ///
-    /// `send_websocket_msg_handler` tunnels received websocket message in an unbuffered channel so as to be processed by
+    /// `send_rcvd_websocket_msg` tunnels received websocket message in an unbuffered channel so as to be processed by
     /// `received_RPC_message_handler`.
     ///
-    /// `websocket_read` continuosly reads messages received from server, if message received is `None` indicates
-    /// websocket is closed and needs to be reconnected.
+    /// `websocket_read` reads messages received from server, if message received is `None` indicates websocket
+    /// is closed and needs to be reconnected.
     /// `Note:` On `websocket_read close`, `websocket_writer` is also safely closed and websocket requires a `reconnect`
     /// which is done automatically.
     ///
-    /// `websocket_read_new` sends a new websocket stream if websocket disconnects and autoconnect is enabled.
+    /// `websocket_read_new` is a channel that retrieves a reconnected websocket on websocket disconnect, this is if reconnect is enabled.
     ///
     /// `is_ws_disconnected` indicates if websocket is disconnected.
     ///
@@ -316,18 +425,81 @@ impl Client {
     /// `signal_ws_reconnect` signals websocket reconnect handler to create a new websocket connection and send new ws stream through receiving
     /// channels.
     ///
-    /// Messages received by websocket stream are sent to a received message handler which processes messages, also periodical pings are sent for keep alive.
+    /// Handles messages received from websocket read which are sent to a message handler which processes received messages.
     /// If websocket disconnects either through a protocol error or a normal close, `handle_websocket_in` calls for a new websocket connection.
     #[inline]
-    async fn _handle_websocket_in(
-        _send_rcvd_websocket_msg: mpsc::UnboundedSender<Message>,
-        _websocket_read: Websocket,
-        _websocket_read_new: mpsc::Receiver<Websocket>,
-        _is_ws_disconnected: Arc<RwLock<bool>>,
-        _ws_disconnected_acknowledgement: mpsc::Sender<()>,
-        _signal_ws_reconnect: mpsc::Sender<()>,
+    async fn handle_websocket_in(
+        send_rcvd_websocket_msg: mpsc::UnboundedSender<Message>,
+        mut websocket_read: Websocket,
+        mut websocket_read_new: mpsc::Receiver<Websocket>,
+        is_ws_disconnected: Arc<RwLock<bool>>,
+        mut ws_disconnected_acknowledgement: mpsc::Sender<()>,
+        mut signal_ws_reconnect: mpsc::Sender<()>,
     ) {
-        todo!()
+        loop {
+            while let Some(message) = websocket_read.next().await {
+                match message {
+                    Ok(message) => match send_rcvd_websocket_msg.send(message) {
+                        Ok(_) => {}
+
+                        Err(e) => {
+                            panic!("error sending received websocket message to message handler, error: {}", e);
+                        }
+                    },
+
+                    Err(e) => {
+                        match e {
+                            WSError::ConnectionClosed | WSError::AlreadyClosed => {
+                                info!("websocket closed.");
+
+                                let mut change_connection_state = is_ws_disconnected.write().await;
+                                *change_connection_state = true;
+
+                                match ws_disconnected_acknowledgement.send(()).await {
+                                    Ok(_) => {
+                                        return;
+                                    }
+
+                                    Err(e) => {
+                                        panic!("error sending websocket disconnect acknowledgement to client, error: {}", e)
+                                    }
+                                };
+                            }
+
+                            _ => {
+                                warn!("websocket disconnected unexpectedly with error: {}", e);
+
+                                let mut change_connection_state = is_ws_disconnected.write().await;
+                                *change_connection_state = true;
+
+                                match signal_ws_reconnect.send(()).await {
+                                    Ok(_) => {
+                                        break;
+                                    }
+
+                                    Err(e) => panic!(
+                                        "error signalling websocket reconnection, error: {}",
+                                        e
+                                    ),
+                                };
+                            }
+                        };
+                    }
+                }
+            }
+
+            let ws = match websocket_read_new.recv().await {
+                Some(ws) => ws,
+
+                None => {
+                    // Websocket auto connect is disabled, return.
+                    return;
+                }
+            };
+
+            // Change to new websocket stream and loop for new connection.
+            websocket_read = ws;
+        }
     }
 
     /// Handles received messages from RPC server. handle_received_message is non-blocking.
@@ -370,7 +542,7 @@ impl Client {
         mut _user_command: mpsc::Receiver<_Command>,
         mut _request_queue_updated: mpsc::Sender<()>,
         mut _message_send_acknowledgement: mpsc::Receiver<Result<(), Message>>,
-        send_queue_command: mpsc::Sender<Message>,
+        _send_queue_command: mpsc::Sender<Message>,
         _requests_queue_container: Arc<RwLock<VecDeque<Message>>>,
         _receiver_channel_id_mapper: Arc<RwLock<HashMap<u64, mpsc::Sender<Message>>>>,
     ) {
@@ -409,24 +581,35 @@ impl Client {
     /// `ws_writer_new` sends new websocket writer to handler.
     ///
     /// On websocket disconnect a new websocket channel is to be created and sent across handler for
-    /// a successful reconnection. Reconnection is only called if Auto Connect is off.
+    /// a successful reconnection. Reconnection is only called if Auto Connect is enabled.
     async fn _ws_reconnect_handler(
         config: Arc<Mutex<connection::ConnConfig>>,
         mut ws_reconnect_signal: mpsc::Receiver<()>,
         mut websocket_read_new: mpsc::Sender<Websocket>,
         mut ws_writer_new: mpsc::Sender<mpsc::Sender<Message>>,
     ) {
+        let mut config_clone = config.lock().await;
+
+        if config_clone.disable_auto_reconnect {
+            drop(ws_reconnect_signal);
+            drop(websocket_read_new);
+            drop(ws_writer_new);
+
+            return;
+        }
+
         while let Some(_) = ws_reconnect_signal.recv().await {
             let mut backoff = std::time::Duration::new(0, 0);
 
             loop {
-                backoff = backoff + crate::rpcclient::constants::ConnectionRetryIntervalSecs;
+                backoff = backoff + crate::rpcclient::constants::CONNECTION_RETRY_INTERVAL_SECS;
 
-                let (ws_rcv, ws_writer) = match config.lock().await.ws_split_stream().await {
+                let (ws_rcv, ws_writer) = match config_clone.ws_split_stream().await {
                     Ok(ws) => ws,
 
                     Err(e) => {
                         warn!("unable to reconnect websocket, error: {}", e);
+                        std::thread::sleep(backoff);
                         continue;
                     }
                 };
@@ -436,18 +619,16 @@ impl Client {
 
                     // It is assumed websocket channels are closed, so handler is closed.
                     Err(e) => {
-                        warn!(
-                            "websocket reconnect handler closed on websocket_read, error: {}",
+                        panic!(
+                            "websocket reconnect handler closed on sending new websocket_read channel, error: {}",
                             e
                         );
-                        return;
                     }
                 };
 
                 match ws_writer_new.send(ws_writer).await {
                     Ok(_) => {
-                        // Wait for next WS reconnect call.
-                        std::thread::sleep(backoff);
+                        // Break loop and wait for next websocket reconnect command.
                         break;
                     }
 
@@ -456,6 +637,7 @@ impl Client {
                             "websocket reconnect handler closed on ws_writer send, error: {}",
                             e
                         );
+
                         return;
                     }
                 };

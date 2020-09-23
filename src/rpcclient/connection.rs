@@ -8,6 +8,7 @@ use tokio::{
     net::TcpStream,
     sync::mpsc,
 };
+
 use tokio_tungstenite::{stream::Stream, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 
 /// Describes the connection configuration parameters for the client.
