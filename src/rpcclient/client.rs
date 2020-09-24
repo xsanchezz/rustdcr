@@ -26,10 +26,18 @@ const SEND_BUFFER_SIZE: usize = 50;
 
 const KEEP_ALIVE: u64 = 5;
 
-pub(crate) struct _Command {
+pub(crate) struct Command {
     pub id: u64,
     pub user_channel: mpsc::Sender<Message>,
     pub rpc_message: Message,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) struct JsonResponse {
+    pub jsonrpc: String,
+    pub id: u64,
+    pub result: Vec<u8>,
+    pub error: Vec<u8>,
 }
 
 /// Creates a new RPC client based on the provided connection configuration
@@ -37,31 +45,35 @@ pub(crate) struct _Command {
 /// interested in receiving notifications and will be ignored if the
 /// configuration is set to run in HTTP POST mode.
 pub async fn new(
-    _config: connection::ConnConfig,
-    _notif_handler: notify::NotificationHandlers,
+    config: connection::ConnConfig,
+    notif_handler: notify::NotificationHandlers,
 ) -> Result<Client, String> {
     let (ws_rcv_chan_send, ws_rcv_chan_rcv) = mpsc::channel(SEND_BUFFER_SIZE);
     let (disconnect_ws_send, disconnect_ws_rcv) = mpsc::channel(1);
     let ws_disconnect_acknowledgement = mpsc::channel(1);
 
     let mut client = Client {
-        _id: AtomicU64::new(0),
-        _configuration: Arc::new(Mutex::new(_config)),
-        _disconnect_ws: disconnect_ws_send,
-        _is_ws_disconnected: Arc::new(RwLock::new(true)),
-        _notification_handler: Arc::new(_notif_handler),
-        _notification_state: Arc::new(RwLock::new(notify::NotificationState::default())),
-        _receiver_channel_id_mapper: Arc::new(RwLock::new(HashMap::new())),
-        _requests_queue_container: Arc::new(RwLock::new(VecDeque::new())),
-        _user_command: ws_rcv_chan_send,
-        _ws_disconnected_acknowledgement: ws_disconnect_acknowledgement.1,
+        id: AtomicU64::new(0),
+        configuration: Arc::new(Mutex::new(config)),
+        disconnect_ws: disconnect_ws_send,
+        is_ws_disconnected: Arc::new(RwLock::new(true)),
+        notification_handler: Arc::new(notif_handler),
+        notification_state: Arc::new(RwLock::new(notify::NotificationState::default())),
+        receiver_channel_id_mapper: Arc::new(Mutex::new(HashMap::new())),
+        requests_queue_container: Arc::new(Mutex::new(VecDeque::new())),
+        user_command: ws_rcv_chan_send,
+        ws_disconnected_acknowledgement: ws_disconnect_acknowledgement.1,
         waitgroup: waitgroup::new(),
     };
 
-    let config = client._configuration.clone();
+    let config = client.configuration.clone();
     let mut config = config.lock().await;
 
-    if config.disable_connect_on_new && !config.http_post_mode {
+    client.waitgroup.add(1);
+
+    if !config.disable_connect_on_new && !config.http_post_mode {
+        println!("establishing websocket connection");
+
         match config.ws_split_stream().await {
             Ok(ws) => {
                 client
@@ -72,10 +84,12 @@ pub async fn new(
                         ws,
                     )
                     .await;
+
+                *client.is_ws_disconnected.write().await = false;
             }
 
             Err(e) => return Err(e),
-        }
+        };
     }
 
     Ok(client)
@@ -97,37 +111,37 @@ pub async fn new(
 /// All field in `Client` are async safe.
 pub struct Client {
     /// tracks asynchronous requests and is to be updated at realtime.
-    _id: AtomicU64,
+    id: AtomicU64,
 
     /// A channel that tunnels converted users messages to ws_write_middleman to be consumed by websocket writer.
-    _user_command: mpsc::Sender<_Command>, // ToDo: not needed
+    user_command: mpsc::Sender<Command>, // ToDo: not needed
 
     /// A channel that calls for disconnection of websocket connection.
-    _disconnect_ws: mpsc::Sender<()>,
+    disconnect_ws: mpsc::Sender<()>,
 
     /// A channel that acknowledges websocket disconnection.
-    _ws_disconnected_acknowledgement: mpsc::Receiver<()>,
+    ws_disconnected_acknowledgement: mpsc::Receiver<()>,
 
     /// Holds the connection configuration associated with the client.
-    _configuration: Arc<Mutex<connection::ConnConfig>>,
+    configuration: Arc<Mutex<connection::ConnConfig>>,
 
     /// Contains all notification callback functions. It is protected by a mutex lock.
     /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
-    _notification_handler: Arc<notify::NotificationHandlers>,
+    notification_handler: Arc<notify::NotificationHandlers>,
 
     /// Stores current state of notification handlers so that they can be re-registered on
     /// websocket disconnect.
-    _notification_state: Arc<RwLock<notify::NotificationState>>,
+    notification_state: Arc<RwLock<notify::NotificationState>>,
 
     /// Stores all requests to be be sent to the RPC server.
-    _requests_queue_container: Arc<RwLock<VecDeque<Message>>>,
+    requests_queue_container: Arc<Mutex<VecDeque<Message>>>,
 
     /// Maps request ID to receiver channel.
     /// Messages received from rpc server are mapped with ID stored.
-    _receiver_channel_id_mapper: Arc<RwLock<HashMap<u64, mpsc::Sender<Message>>>>,
+    receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
 
     /// Indicates whether the client is disconnected from the server.
-    _is_ws_disconnected: Arc<RwLock<bool>>,
+    is_ws_disconnected: Arc<RwLock<bool>>,
 
     /// Asynchronously blocks.
     waitgroup: waitgroup::WaitGroup,
@@ -145,12 +159,16 @@ impl Client {
     /// attempts were successful. The client will be shut down when the passed
     /// context is terminated.
     pub async fn connect(&mut self) -> Result<(), String> {
-        let mut config = self._configuration.lock().await;
+        if !*self.is_ws_disconnected.read().await {
+            return Ok(());
+        }
+
+        let mut config = self.configuration.lock().await;
         if config.http_post_mode {
             return Err("Not websocket".into());
         }
 
-        let mut is_ws_disconnected = self._is_ws_disconnected.write().await;
+        let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
         if *is_ws_disconnected == false {
             return Err("Already connected".into());
         }
@@ -159,11 +177,9 @@ impl Client {
         let disconnect_ws_channel = mpsc::channel(1);
         let ws_disconnect_acknowledgement = mpsc::channel(1);
 
-        self.waitgroup.add(1);
-
-        self._user_command = user_command_channel.0;
-        self._disconnect_ws = disconnect_ws_channel.0;
-        self._ws_disconnected_acknowledgement = ws_disconnect_acknowledgement.1;
+        self.user_command = user_command_channel.0;
+        self.disconnect_ws = disconnect_ws_channel.0;
+        self.ws_disconnected_acknowledgement = ws_disconnect_acknowledgement.1;
 
         let ws = match config.ws_split_stream().await {
             Ok(ws) => ws,
@@ -184,8 +200,6 @@ impl Client {
         )
         .await;
 
-        self.waitgroup.done();
-
         Ok(())
     }
 
@@ -203,7 +217,7 @@ impl Client {
     /// All websocket connection is implemented in this function and all child functions are spawned asynchronously.
     pub(crate) async fn ws_handler(
         &mut self,
-        user_command: mpsc::Receiver<_Command>,
+        user_command: mpsc::Receiver<Command>,
         disconnect_ws_cmd_rcv: mpsc::Receiver<()>,
         ws_disconnect_acknowledgement: mpsc::Sender<()>,
         split_stream: (Websocket, mpsc::Sender<Message>),
@@ -218,7 +232,7 @@ impl Client {
 
         let request_queue_update = mpsc::channel(1);
 
-        let websocket_out = Self::_handle_websocket_out(
+        let websocket_out = Self::handle_websocket_out(
             split_stream.1,
             new_ws_writer.1,
             queue_command.1,
@@ -237,27 +251,27 @@ impl Client {
             handle_rcvd_msg.0,
             split_stream.0,
             new_ws_reader.1,
-            self._is_ws_disconnected.clone(),
+            self.is_ws_disconnected.clone(),
             ws_disconnect_acknowledgement,
             signal_ws_reconnect.0,
         );
 
-        let rcvd_msg_handler = Self::_handle_received_message(
+        let rcvd_msg_handler = Self::handle_received_message(
             handle_rcvd_msg.1,
-            self._receiver_channel_id_mapper.clone(),
+            self.receiver_channel_id_mapper.clone(),
         );
 
-        let ws_write_middleman = Self::_ws_write_middleman(
+        let ws_write_middleman = Self::ws_write_middleman(
             user_command,
             request_queue_update.0,
             msg_acknowledgement.1,
             queue_command.0,
-            self._requests_queue_container.clone(),
-            self._receiver_channel_id_mapper.clone(),
+            self.requests_queue_container.clone(),
+            self.receiver_channel_id_mapper.clone(),
         );
 
-        let reconnect_handler = Self::_ws_reconnect_handler(
-            self._configuration.clone(),
+        let reconnect_handler = Self::ws_reconnect_handler(
+            self.configuration.clone(),
             signal_ws_reconnect.1,
             new_ws_reader.0,
             new_ws_writer.0,
@@ -295,7 +309,7 @@ impl Client {
     /// If websocket disconnects either through a protocol error or a normal close, `websocket_out` closes and has to be recalled to
     /// function. Ping commands are sent at intervals.
     #[inline]
-    async fn _handle_websocket_out(
+    async fn handle_websocket_out(
         mut ws_sender: mpsc::Sender<Message>,
         mut ws_sender_new: mpsc::Receiver<mpsc::Sender<Message>>,
         mut queue_command: mpsc::Receiver<Message>,
@@ -319,17 +333,28 @@ impl Client {
         // ToDo: What happens if auto disconnect is disabled????
         loop {
             tokio::select! {
-                _ = disconnect_cmd_rcv.recv()=>{
-                    match ws_sender.send(Message::Close(None)).await{
-                        Ok(_) => break,
+                disconnect = disconnect_cmd_rcv.recv()=>{
+                    match disconnect{
+                        Some(_) => {
+                            match ws_sender.send(Message::Close(None)).await{
+                                Ok(_) => {
+                                    println!("sending close message");
+                                    break;
+                                },
 
-                        Err(e) => {
-                            panic!(
-                                "error sending close message to websocket, error: {}",
-                                e
-                            );
+                                Err(e) => {
+                                    panic!(
+                                        "error sending close message to websocket, error: {}",
+                                        e
+                                    );
+                                }
+                            };
                         }
-                    };
+
+                        None => {
+                            println!("websocket disconnect receiver closed abruptly")
+                        }
+                    }
                 }
 
                 // A ping command is sent to server if no RPC command is sent within time frame of 5secs.
@@ -355,7 +380,7 @@ impl Client {
                     }
                 }
 
-                new_ws = ws_sender_new.recv()=>{
+                new_ws = ws_sender_new.recv() => {
                     match new_ws {
                         Some(new_ws)=>{
                             ping_sender = new_ws.clone();
@@ -374,6 +399,7 @@ impl Client {
                 msg = queue_command.recv()=>{
                     match msg {
                         Some(msg) => match ws_sender.send(msg).await {
+                            // Send message sent acknowledgement back to server so as to send next queue.
                             Ok(_) => match message_sent_acknowledgement.send(Ok(())).await {
                                 Ok(_) => continue,
 
@@ -385,8 +411,8 @@ impl Client {
                                 }
                             },
 
-                            // On error indicates either a protocol error or websocket closing normally, command is sent back to queue
-                            // and websocket i
+                            // On channel error indicates either a protocol error and auto reconnect disabled or websocket closing normally
+                            // command is sent back to queue.
                             Err(e) => match message_sent_acknowledgement.send(Err(e.0)).await {
                                 Ok(_) => continue,
 
@@ -404,6 +430,8 @@ impl Client {
                 }
             }
         }
+
+        println!("handle_websocket_out exited")
     }
 
     /// Handles tunneling messages sent by RPC server from server to client. handle_websocket_in is non-blocking.
@@ -436,7 +464,7 @@ impl Client {
         mut ws_disconnected_acknowledgement: mpsc::Sender<()>,
         mut signal_ws_reconnect: mpsc::Sender<()>,
     ) {
-        loop {
+        'outer_loop: loop {
             while let Some(message) = websocket_read.next().await {
                 match message {
                     Ok(message) => match send_rcvd_websocket_msg.send(message) {
@@ -451,13 +479,14 @@ impl Client {
                         match e {
                             WSError::ConnectionClosed | WSError::AlreadyClosed => {
                                 info!("websocket closed.");
+                                println!("websocket closed.");
 
                                 let mut change_connection_state = is_ws_disconnected.write().await;
                                 *change_connection_state = true;
 
                                 match ws_disconnected_acknowledgement.send(()).await {
                                     Ok(_) => {
-                                        return;
+                                        break 'outer_loop;
                                     }
 
                                     Err(e) => {
@@ -468,10 +497,12 @@ impl Client {
 
                             _ => {
                                 warn!("websocket disconnected unexpectedly with error: {}", e);
+                                println!("websocket disconnected unexpectedly with error: {}", e);
 
                                 let mut change_connection_state = is_ws_disconnected.write().await;
                                 *change_connection_state = true;
 
+                                // Fall through for reconnection.
                                 match signal_ws_reconnect.send(()).await {
                                     Ok(_) => {
                                         break;
@@ -488,18 +519,23 @@ impl Client {
                 }
             }
 
+            println!("reconnecting websocket");
+            info!("reconnecting websocket");
+
             let ws = match websocket_read_new.recv().await {
                 Some(ws) => ws,
 
                 None => {
                     // Websocket auto connect is disabled, return.
-                    return;
+                    break 'outer_loop;
                 }
             };
 
             // Change to new websocket stream and loop for new connection.
             websocket_read = ws;
         }
+
+        println!("handle_websocket_in exited")
     }
 
     /// Handles received messages from RPC server. handle_received_message is non-blocking.
@@ -513,11 +549,54 @@ impl Client {
     /// Sender channel is `disconnected` immediately message is sent to client.
     /// If websocket disconnects either through a protocol error or a normal close, `handle_received_message` closes and has to be recalled to
     /// function.
-    async fn _handle_received_message(
-        _rcvd_msg_consumer: mpsc::UnboundedReceiver<Message>,
-        _receiver_channel_id_mapper: Arc<RwLock<HashMap<u64, mpsc::Sender<Message>>>>,
+    async fn handle_received_message(
+        mut rcvd_msg_consumer: mpsc::UnboundedReceiver<Message>,
+        receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
     ) {
-        todo!()
+        while let Some(message) = rcvd_msg_consumer.recv().await {
+            let id = match &message {
+                Message::Binary(m) => match serde_json::from_slice(m) {
+                    Ok(m) => m,
+
+                    Err(e) => {
+                        warn!("error unmarshalling binary result, error: {}", e);
+                        continue;
+                    }
+                },
+
+                Message::Text(m) => match serde_json::from_str(m) {
+                    Ok(m) => m,
+
+                    Err(e) => {
+                        warn!("error unmarshalling string result, error: {}", e);
+                        continue;
+                    }
+                },
+
+                _ => {
+                    warn!("unsupported message type sent by server.");
+                    continue;
+                }
+            };
+
+            let data: JsonResponse = id;
+
+            let mut receiver_channel_id_mapper = receiver_channel_id_mapper.lock().await;
+
+            match receiver_channel_id_mapper.get_mut(&data.id) {
+                Some(val) => {
+                    match val.send(message).await {
+                        Ok(_) => {}
+
+                        Err(e) => panic!("could not send server result to user, error: {}", e),
+                    };
+                }
+
+                None => panic!("could not retrieve senders request channel from map"),
+            };
+        }
+
+        println!("handle_received_message exited")
     }
 
     /// Middleman between websocket writer/out and database. ws_write_middleman is non-blocking.
@@ -534,40 +613,85 @@ impl Client {
     ///
     /// `receiver_channel_id_mapper` is a mapper that stores command channels against their ID.
     ///
-    /// On user rpc request to server, command is converted to a `Command` which consists of command ID user channel and an a result channel
+    /// On user rpc request to server, command is converted to a `Command` which consists of command ID user channel and a result channel
     /// that updates on success. User channel is save to database against their ID.
     /// If websocket disconnects either through a protocol error or a normal close, `ws_write_middleman` closes and has to be recalled to
     /// function.
-    async fn _ws_write_middleman(
-        mut _user_command: mpsc::Receiver<_Command>,
-        mut _request_queue_updated: mpsc::Sender<()>,
-        mut _message_send_acknowledgement: mpsc::Receiver<Result<(), Message>>,
-        _send_queue_command: mpsc::Sender<Message>,
-        _requests_queue_container: Arc<RwLock<VecDeque<Message>>>,
-        _receiver_channel_id_mapper: Arc<RwLock<HashMap<u64, mpsc::Sender<Message>>>>,
+    async fn ws_write_middleman(
+        mut user_command: mpsc::Receiver<Command>,
+        mut request_queue_updated: mpsc::Sender<()>,
+        mut message_send_acknowledgement: mpsc::Receiver<Result<(), Message>>,
+        mut send_queue_command: mpsc::Sender<Message>,
+        requests_queue_container: Arc<Mutex<VecDeque<Message>>>,
+        receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
     ) {
-        todo!()
-    }
+        // Check for updates from client for new commands or websocket writer if to send next command in queue.
+        // ToDo: we should only close websocket when new websocket writer errors.
+        loop {
+            tokio::select! {
+                command = user_command.recv() => {
+                    match command {
+                        Some(command) => {
+                            let mut mapper = receiver_channel_id_mapper.lock().await;
 
-    /// Pings websocket at intervals and signal for reconnection on websocket disconnect.
-    ///
-    /// `ping_rpc_command` sends ping or close command to websocket server.
-    ///
-    /// `disconnect_cmd_rcv` is a channel that `receives` disconnect command from client.
-    ///
-    /// `is_ws_disconnected` stores websocket disconnection state.
-    ///
-    /// `signal_ws_reconnect` signals a websocket reconnect command to ws_reconnect_handler function
-    /// on websocket failure.
-    ///
-    /// Pings are sent to websocket server at intervals to keep alive websocket connection,
-    async fn _ws_state_handler(
-        mut _rpc_ping_close_command: mpsc::Sender<Message>,
-        _disconnect_cmd_rcv: mpsc::Receiver<()>,
-        _is_ws_disconnected: Arc<RwLock<bool>>,
-        _signal_ws_reconnect: mpsc::Sender<()>,
-    ) {
-        todo!()
+                            if mapper.insert(command.id, command.user_channel).is_some(){
+                                panic!("channel ID already present in map, ID: {}.", command.id);
+                            }
+
+                            // Update queue and update websocket writer about update.
+                            requests_queue_container
+                                .lock()
+                                .await
+                                .push_back(command.rpc_message);
+
+                            if let Some(e) = request_queue_updated.send(()).await.err() {
+                                println!("error, request queue updater closed, error: {}", e);
+                                break;
+                            }
+                        }
+
+                        None => break,
+                    }
+                }
+
+                ack = message_send_acknowledgement.recv() => {
+                    match ack{
+                        Some(ack) => {
+                            match ack {
+                                Ok(_) => {
+                                    match requests_queue_container.lock().await.pop_front() {
+                                        Some(message) => {
+                                            if send_queue_command.send(message).await.is_err() {
+                                                panic!("error sending message queue to websocket writer")
+                                            }
+                                        }
+
+                                        None => info!("queue empty"),
+                                    };
+                                }
+
+                                Err(message) => {
+                                    // Place back errored message to the top of queue so as to be re-requested by websocket writer.
+                                    requests_queue_container.lock().await.push_front(message);
+
+                                    // Send back push front acknowledgement back to websocket writer.
+                                    if request_queue_updated.send(()).await.is_err() {
+                                        panic!("request queue updater closed abruptly")
+                                    }
+                                }
+                            }
+                        }
+
+                        None => {
+                            println!("message acknowledgement receiver closed");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("ws_write_middleman exited")
     }
 
     /// Reconnects websocket on failure if user specifies Auto Connect as true.
@@ -582,7 +706,7 @@ impl Client {
     ///
     /// On websocket disconnect a new websocket channel is to be created and sent across handler for
     /// a successful reconnection. Reconnection is only called if Auto Connect is enabled.
-    async fn _ws_reconnect_handler(
+    async fn ws_reconnect_handler(
         config: Arc<Mutex<connection::ConnConfig>>,
         mut ws_reconnect_signal: mpsc::Receiver<()>,
         mut websocket_read_new: mpsc::Sender<Websocket>,
@@ -590,6 +714,7 @@ impl Client {
     ) {
         let mut config_clone = config.lock().await;
 
+        // Drop all websocket connection if auto reconnect is disabled.
         if config_clone.disable_auto_reconnect {
             drop(ws_reconnect_signal);
             drop(websocket_read_new);
@@ -643,16 +768,28 @@ impl Client {
                 };
             }
         }
+
+        println!("_ws_reconnect_handler exited")
     }
 
     /// Disconnects RPC server, deletes command queue and errors any pending request by client.
-    pub fn disconnect(&self) {
-        todo!()
+    pub async fn disconnect(&mut self) {
+        if self.disconnect_ws.send(()).await.is_err() {
+            warn!("error sending disconnect command to webserver, disconnect_ws closed.")
+        }
+
+        if self.ws_disconnected_acknowledgement.recv().await.is_none() {
+            warn!("ws_disconnected_acknowledgement receiver closed abruptly")
+        }
     }
 
     /// Return websocket disconnected state to webserver.
     pub fn disconnected(&self) {
         todo!()
+    }
+
+    pub async fn is_disconnected(&self) -> bool {
+        *self.is_ws_disconnected.read().await
     }
 
     pub fn wait_for_shutdown(&self) {
@@ -662,7 +799,11 @@ impl Client {
     /// Clear queue, error commands channels and close websocket connection normally.
     /// Shutdown broadcasts a disconnect command to websocket continuosly and waits for waitgroup block to be
     /// closed before exiting.
-    pub fn shutdown(&self) {
-        todo!()
+    pub async fn shutdown(mut self) {
+        if *self.is_ws_disconnected.read().await == false {
+            self.disconnect().await
+        };
+
+        self.waitgroup.done();
     }
 }

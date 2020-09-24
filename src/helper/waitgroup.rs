@@ -28,8 +28,7 @@ impl WaitGroup {
     pub fn done(&self) {
         let mut count = self.0.count.lock().unwrap();
         if *count == 0 {
-            self.notify_if_empty(*count);
-            return;
+            panic!("waitgroup count is less than zero.");
         }
 
         *count -= 1;
