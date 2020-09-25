@@ -1,8 +1,9 @@
 use dcrdrs::{dcrutil::app_data, rpcclient};
-use std::{fs, net, path::PathBuf, sync::Arc, task, thread, time};
+use std::{fs, path::PathBuf};
 
 #[tokio::main]
 async fn main() {
+    pretty_env_logger::init();
     // Get dcrd app directory, if none is found use current path.
     let mut app_dir = match app_data::get_app_data_dir("dcrd".into(), false) {
         Some(dir) => dir,
@@ -22,11 +23,14 @@ async fn main() {
     };
 
     let notif_handler = rpcclient::notify::NotificationHandlers {
-        on_client_connected: Some(block_connected),
+        on_client_connected: Some(|| {
+            println!("client connected");
+        }),
+
         ..Default::default()
     };
 
-    let client = rpcclient::client::new(config, notif_handler).await.unwrap();
+    let mut client = rpcclient::client::new(config, notif_handler).await.unwrap();
     // let ll = Arc::new(client);
     // let clone_cli = Arc::clone(ll.clone());
 
@@ -40,9 +44,16 @@ async fn main() {
     //     println!("is websocket disconnected, {}", handle.await);
     // });
 
-    client.wait_for_shutdown();
-}
+    // client.shutdown().await;
 
-fn block_connected() {
-    println!("works");
+    tokio::time::delay_for(tokio::time::Duration::from_secs(2)).await;
+
+    // client.shutdown().await;
+
+    // tokio::time::delay_for(tokio::time::Duration::from_secs(10)).await;
+
+    println!("Websocket disconnected? {}", client.is_disconnected().await);
+    client.wait_for_shutdown();
+
+    println!("done")
 }

@@ -87,15 +87,17 @@ impl Default for NotificationHandlers {
     }
 }
 
-pub(crate) struct NotificationState {
-    pub(crate) notify_blocks: bool,
-    pub(crate) notify_work: bool,
-    pub(crate) notify_winning_tickets: bool,
-    pub(crate) notify_spent_and_missed_tickets: bool,
-    pub(crate) notify_new_tickets: bool,
-    pub(crate) notify_stake_difficulty: bool,
-    pub(crate) notify_new_tx: bool,
-    pub(crate) notify_new_tx_verbose: bool,
+/// Used to track the current state of successfully registered notifications so the
+/// state can be automatically re-established on reconnect.
+pub(super) struct NotificationState {
+    pub(super) notify_blocks: bool,
+    pub(super) notify_work: bool,
+    pub(super) notify_winning_tickets: bool,
+    pub(super) notify_spent_and_missed_tickets: bool,
+    pub(super) notify_new_tickets: bool,
+    pub(super) notify_stake_difficulty: bool,
+    pub(super) notify_new_tx: bool,
+    pub(super) notify_new_tx_verbose: bool,
 }
 
 impl Default for NotificationState {

@@ -4,7 +4,7 @@ use reqwest::header;
 use crate::{helper::error_helper, rpcclient::constants};
 use futures::{stream::SplitStream, StreamExt};
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::mpsc,
 };

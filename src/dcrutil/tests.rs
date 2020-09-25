@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod app_data_dir {
+    #[allow(unused_imports)]
     use std::{env, path::PathBuf};
 
     #[test]
