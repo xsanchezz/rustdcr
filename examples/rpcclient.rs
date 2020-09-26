@@ -1,4 +1,7 @@
-use dcrdrs::{dcrutil::app_data, rpcclient};
+use dcrdrs::{
+    dcrutil::app_data,
+    rpcclient::{client, connection, extensions_commands::Extension, notify},
+};
 use std::{fs, path::PathBuf};
 
 #[tokio::main]
@@ -15,14 +18,14 @@ async fn main() {
 
     let certs = fs::read_to_string(app_dir).unwrap();
 
-    let config = rpcclient::connection::ConnConfig {
+    let config = connection::ConnConfig {
         certificates: certs,
         password: "admin".to_string(),
         user: "admin".to_string(),
         ..Default::default()
     };
 
-    let notif_handler = rpcclient::notify::NotificationHandlers {
+    let notif_handler = notify::NotificationHandlers {
         on_client_connected: Some(|| {
             println!("client connected");
         }),
@@ -30,10 +33,9 @@ async fn main() {
         ..Default::default()
     };
 
-    let mut client = rpcclient::client::new(config, notif_handler).await.unwrap();
+    let client = client::new(config, notif_handler).await.unwrap();
     // let ll = Arc::new(client);
     // let clone_cli = Arc::clone(ll.clone());
-
     //  task::Poll::is_ready(shutdown(&client));
     println!("waiting for shutdown!!!");
 

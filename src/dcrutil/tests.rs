@@ -15,7 +15,17 @@ mod app_data_dir {
         assert_eq!(
             Some(home_dir),
             crate::dcrutil::app_data::get_app_data_dir("myapp".into(), false)
-        )
+        );
+
+        assert_eq!(
+            None,
+            crate::dcrutil::app_data::get_app_data_dir("".into(), false)
+        );
+
+        assert_eq!(
+            None,
+            crate::dcrutil::app_data::get_app_data_dir(".".into(), false)
+        );
     }
 
     #[test]

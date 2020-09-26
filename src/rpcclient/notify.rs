@@ -1,3 +1,4 @@
+#[deny(missing_docs)]
 use crate::rpcclient::constants;
 use std::collections::HashMap;
 
@@ -7,6 +8,7 @@ use std::collections::HashMap;
 /// concrete callback.
 ///
 /// All callback functions are run async and are safe from blocking client requests.
+#[derive(Default)]
 pub struct NotificationHandlers {
     /// on_client_connected callback function is invoked when the client connects or
     /// reconnects to the RPC server.
@@ -69,26 +71,9 @@ pub struct NotificationHandlers {
     pub on_unknown_notification: Option<fn(method: String, params: [u8])>,
 }
 
-impl Default for NotificationHandlers {
-    fn default() -> Self {
-        NotificationHandlers {
-            on_block_connected: None,
-            on_block_disconnected: None,
-            on_client_connected: None,
-            on_new_tickets: None,
-            on_relevant_tx_accepted: None,
-            on_reorganization: None,
-            on_spent_and_missed_tickets: None,
-            on_stake_difficulty: None,
-            on_unknown_notification: None,
-            on_winning_tickets: None,
-            on_work: None,
-        }
-    }
-}
-
 /// Used to track the current state of successfully registered notifications so the
 /// state can be automatically re-established on reconnect.
+#[derive(Default)]
 pub(super) struct NotificationState {
     pub(super) notify_blocks: bool,
     pub(super) notify_work: bool,
@@ -98,19 +83,4 @@ pub(super) struct NotificationState {
     pub(super) notify_stake_difficulty: bool,
     pub(super) notify_new_tx: bool,
     pub(super) notify_new_tx_verbose: bool,
-}
-
-impl Default for NotificationState {
-    fn default() -> Self {
-        NotificationState {
-            notify_blocks: false,
-            notify_work: false,
-            notify_winning_tickets: false,
-            notify_spent_and_missed_tickets: false,
-            notify_new_tickets: false,
-            notify_stake_difficulty: false,
-            notify_new_tx: false,
-            notify_new_tx_verbose: false,
-        }
-    }
 }

@@ -1,3 +1,4 @@
+#[deny(missing_docs)]
 use crate::rpcclient::{connection, constants};
 
 use log::{debug, info, warn};

@@ -1,3 +1,4 @@
+#[deny(missing_docs)]
 use httparse::Status;
 use reqwest::header;
 

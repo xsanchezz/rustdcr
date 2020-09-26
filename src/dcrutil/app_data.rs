@@ -22,7 +22,7 @@ use std::{
 /// # Example
 ///
 /// ```
-/// let dir = dcrdrs::dcrutil::app_data::get_app_data_dir(&mut "myapp".into(), false);
+/// let dir = dcrdrs::dcrutil::app_data::get_app_data_dir(&mut "myapp", false);
 /// ```
 /// ## Gives
 ///
@@ -33,35 +33,33 @@ use std::{
 ///   Windows: %LOCALAPPDATA%\Myapp
 ///
 ///   Plan 9: $home/myapp
-pub fn get_app_data_dir(app_name: String, roaming: bool) -> Option<PathBuf> {
+pub fn get_app_data_dir(app_name: &str, roaming: bool) -> Option<PathBuf> {
     let dir_data = DirData {
         app_name: app_name,
-        os: env::consts::OS.to_string(),
+        os: env::consts::OS,
         roaming: roaming,
     };
 
     dir_data.get_app_data_dir()
 }
 
-struct DirData {
-    os: String,
-    app_name: String,
+struct DirData<'a> {
+    os: &'a str,
+    app_name: &'a str,
     roaming: bool,
 }
 
-impl DirData {
+impl<'a> DirData<'a> {
     /// fetch dcrd app directory.
     fn get_app_data_dir(mut self) -> Option<PathBuf> {
         if self.app_name == "" || self.app_name == "." {
-            return Some(".".into());
+            return None;
         }
 
         // Strip "." if caller prepend a period to path.
-        match self.app_name.strip_prefix(".") {
-            Some(value) => self.app_name = value.to_string(),
-
-            _ => {}
-        }
+        self.app_name.strip_prefix(".").map(|value| {
+            self.app_name = value;
+        });
 
         // Get the OS specific home directory.
         match dirs::home_dir() {
@@ -78,14 +76,14 @@ impl DirData {
     }
 
     /// retrieves app patch using users os attributes.
-    fn retrieve_from_os(self, home_dir: &PathBuf) -> Option<PathBuf> {
+    fn retrieve_from_os(&self, home_dir: &PathBuf) -> Option<PathBuf> {
         let app_name_upper =
             String::from(self.app_name[..1].to_ascii_uppercase()).add(&self.app_name[1..]);
 
         let app_name_lower =
             String::from(self.app_name[..1].to_ascii_lowercase()).add(&self.app_name[1..]);
 
-        match self.os.as_str() {
+        match self.os {
             "windows" => {
                 // Attempt to use the LOCALAPPDATA or APPDATA environment variable on
                 // Windows.

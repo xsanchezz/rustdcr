@@ -1,3 +1,4 @@
+#[deny(missing_docs)]
 use super::{connection, constants, infrastructure, notify};
 use crate::helper::waitgroup;
 
@@ -284,14 +285,16 @@ impl Client {
         drop(is_ws_disconnected);
 
         if self.disconnect_ws.send(()).await.is_err() {
-            warn!("error sending disconnect command to webserver, disconnect_ws closed.")
+            warn!("error sending disconnect command to webserver, disconnect_ws closed.");
+            return;
         }
 
         if self.ws_disconnected_acknowledgement.recv().await.is_none() {
-            println!("ws_disconnected_acknowledgement receiver closed abruptly")
+            warn!("ws_disconnected_acknowledgement receiver closed abruptly");
+            return;
         }
 
-        println!("disconnected successfully")
+        info!("disconnected successfully")
     }
 
     /// Return websocket disconnected state to webserver.
