@@ -26,7 +26,7 @@ impl Client {
         const BLOCK_CONNECTED_METHOD_NAME: &str = "blockconnected";
         const BLOCK_DISCONNECTED_METHOD_NAME: &str = "blockdisconnected";
 
-        const METHOD_NAME: &str = "blockdisconnected";
+        const METHOD_NAME: &str = "notifyblocks";
 
         // Check if notification handler has already been registered;
         let notification_state = self._notification_state.write().await;
