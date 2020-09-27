@@ -9,7 +9,7 @@ use async_std::sync::{Arc, Mutex, RwLock};
 use futures::stream::SplitStream;
 use std::{
     collections::{HashMap, VecDeque},
-    sync::atomic::AtomicU64,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use tokio::{net::TcpStream, sync::mpsc};
@@ -30,12 +30,12 @@ pub async fn new(
     let ws_disconnect_acknowledgement = mpsc::channel(1);
 
     let mut client = Client {
-        _id: AtomicU64::new(0),
+        _id: AtomicU64::new(1),
         configuration: Arc::new(Mutex::new(config)),
         disconnect_ws: disconnect_ws_send,
         is_ws_disconnected: Arc::new(RwLock::new(true)),
         _notification_handler: Arc::new(notif_handler),
-        _notification_state: Arc::new(RwLock::new(notify::NotificationState::default())),
+        _notification_state: Arc::new(RwLock::new(HashMap::new())),
         receiver_channel_id_mapper: Arc::new(Mutex::new(HashMap::new())),
         requests_queue_container: Arc::new(Mutex::new(VecDeque::new())),
         user_command: ws_rcv_chan_send,
@@ -88,10 +88,10 @@ pub async fn new(
 /// All field in `Client` are async safe.
 pub struct Client {
     /// tracks asynchronous requests and is to be updated at realtime.
-    _id: AtomicU64,
+    pub(crate) _id: AtomicU64,
 
     /// A channel that tunnels converted users messages to ws_write_middleman to be consumed by websocket writer.
-    user_command: mpsc::Sender<infrastructure::Command>, // ToDo: not needed
+    pub(crate) user_command: mpsc::Sender<infrastructure::Command>, // ToDo: not needed
 
     /// A channel that calls for disconnection of websocket connection.
     disconnect_ws: mpsc::Sender<()>,
@@ -100,22 +100,22 @@ pub struct Client {
     ws_disconnected_acknowledgement: mpsc::Receiver<()>,
 
     /// Holds the connection configuration associated with the client.
-    configuration: Arc<Mutex<connection::ConnConfig>>,
+    pub(crate) configuration: Arc<Mutex<connection::ConnConfig>>,
 
     /// Contains all notification callback functions. It is protected by a mutex lock.
     /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
-    _notification_handler: Arc<notify::NotificationHandlers>,
+    pub(crate) _notification_handler: Arc<notify::NotificationHandlers>,
 
-    /// Stores current state of notification handlers so that they can be re-registered on
-    /// websocket disconnect.
-    _notification_state: Arc<RwLock<notify::NotificationState>>,
+    /// Stores state of notification handlers so that they can be re-registered on
+    /// websocket disconnect. States are mapped method name to receiver channel ID.
+    pub(crate) _notification_state: Arc<RwLock<HashMap<String, u64>>>,
 
     /// Stores all requests to be be sent to the RPC server.
     requests_queue_container: Arc<Mutex<VecDeque<Message>>>,
 
     /// Maps request ID to receiver channel.
     /// Messages received from rpc server are mapped with ID stored.
-    receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
+    pub(crate) receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
 
     /// Indicates whether the client is disconnected from the server.
     is_ws_disconnected: Arc<RwLock<bool>>,
@@ -180,6 +180,7 @@ impl Client {
             handle_rcvd_msg.1,
             ws_disconnect_acknowledgement,
             self.receiver_channel_id_mapper.clone(),
+            self._notification_state.clone(),
         );
 
         let ws_write_middleman = infrastructure::ws_write_middleman(
@@ -215,6 +216,15 @@ impl Client {
         on_client_connected();
 
         self.waitgroup.done();
+    }
+
+    /// Returns the next id to be used when sending a JSON-RPC message. This ID allows
+    /// responses to be associated with particular requests per the JSON-RPC specification.
+    /// Typically the consumer of the client does not need to call this function, however,
+    /// if a custom request is being created and used this function should be used to ensure the ID
+    /// is unique amongst all requests being made.
+    pub(crate) fn next_id(&self) -> u64 {
+        self._id.fetch_add(1, Ordering::SeqCst)
     }
 
     /// Establishes the initial websocket connection.  This is necessary when a client was
@@ -272,6 +282,46 @@ impl Client {
         Ok(())
     }
 
+    /// Creates custom RPC command.
+    /// Receiving channel receives returned message from server.
+    pub async fn custom_command(
+        &mut self,
+        method: &str,
+        params: &[serde_json::Value],
+    ) -> Result<mpsc::Receiver<Message>, String> {
+        let (id, msg) = self.marshal_command(method, params);
+
+        let msg = match msg {
+            Ok(cmd) => cmd,
+
+            Err(e) => {
+                warn!("error marshalling custom command, error: {}", e);
+
+                return Err("Error marshalling custom command.".into());
+            }
+        };
+
+        let channel = mpsc::channel(1);
+
+        let cmd = super::infrastructure::Command {
+            id: id,
+            rpc_message: Message::binary(msg),
+            user_channel: channel.0,
+        };
+
+        match self.user_command.send(cmd).await {
+            Ok(_) => {}
+
+            Err(e) => {
+                warn!("error sending custom command to server, error: {}", e);
+
+                return Err("Error sending custom command to RPC.".into());
+            }
+        };
+
+        return Ok(channel.1);
+    }
+
     /// Disconnects RPC server, deletes command queue and errors any pending request by client.
     pub async fn disconnect(&mut self) {
         // Return if websocket is disconnected.
@@ -281,7 +331,6 @@ impl Client {
         }
 
         *is_ws_disconnected = true;
-
         drop(is_ws_disconnected);
 
         if self.disconnect_ws.send(()).await.is_err() {
@@ -295,6 +344,12 @@ impl Client {
         }
 
         info!("disconnected successfully")
+    }
+
+    async fn unregister_notification_state(&mut self) {
+        let mut notification_state = self._notification_state.write().await;
+
+        notification_state.clear();
     }
 
     /// Return websocket disconnected state to webserver.
@@ -317,6 +372,8 @@ impl Client {
         };
 
         info!("Shutting down websocket.");
+
+        self.unregister_notification_state().await;
 
         self.disconnect().await;
 

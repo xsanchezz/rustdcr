@@ -1,5 +1,5 @@
 #[deny(missing_docs)]
-use crate::rpcclient::{connection, constants};
+use crate::rpcclient::{connection, constants, notify::NotificationState};
 
 use log::{debug, info, warn};
 
@@ -15,18 +15,20 @@ use tokio_tungstenite::{
 
 pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
-pub(super) struct Command {
+pub(crate) struct Command {
     pub id: u64,
     pub user_channel: mpsc::Sender<Message>,
     pub rpc_message: Message,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-pub(super) struct JsonResponse {
-    pub jsonrpc: String,
-    pub id: u64,
-    pub result: Vec<u8>,
-    pub error: Vec<u8>,
+#[derive(serde::Deserialize)]
+pub(super) struct JsonID {
+    pub id: serde_json::Value,
+}
+
+#[derive(serde::Deserialize)]
+pub(super) struct JsonNotificationMethod {
+    pub(super) method: String,
 }
 
 /// Handles sending commands to RPC server through websocket. websocket_out is a `non-blocking` command.
@@ -62,7 +64,7 @@ pub(super) async fn handle_websocket_out(
         match msg_ack.send(Ok(())).await {
             Ok(_) => {}
 
-            Err(e) => panic!("error sending websocket open acknowledgement, error: {}", e),
+            Err(e) => warn!("error sending websocket open acknowledgement, error: {}", e),
         };
     };
 
@@ -108,20 +110,20 @@ pub(super) async fn handle_websocket_out(
                 }
             }
 
-            // A ping command is sent to server if no RPC command is sent within time frame of 5secs.
-            // This is to keep alive connection between websocket server and client.
-            _ = &mut delay => {
-                debug!("sending keep alive ping to websocket server");
-                delay.reset(time::Instant::now() + time::Duration::from_secs(constants::KEEP_ALIVE));
+            // // A ping command is sent to server if no RPC command is sent within time frame of 5secs.
+            // // This is to keep alive connection between websocket server and client.
+            // _ = &mut delay => {
+            //     debug!("sending keep alive ping to websocket server");
+            //     delay.reset(time::Instant::now() + time::Duration::from_secs(constants::KEEP_ALIVE));
 
-                match ping_sender.send(Message::Ping(Vec::new())).await {
-                    Ok(_) => {
-                        continue;
-                    },
+            //     match ping_sender.send(Message::Ping(Vec::new())).await {
+            //         Ok(_) => {
+            //             continue;
+            //         },
 
-                    Err(e) => warn!("error sending ping message, error: {}", e),
-                };
-            }
+            //         Err(e) => warn!("error sending ping message, error: {}", e),
+            //     };
+            // }
 
             e = request_queue_updated.recv() => {
                 match e {
@@ -309,14 +311,19 @@ pub(super) async fn handle_received_message(
     mut rcvd_msg_consumer: mpsc::UnboundedReceiver<Message>,
     mut ws_disconnected_acknowledgement: mpsc::Sender<()>,
     receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
+    notification_state: Arc<RwLock<HashMap<String, u64>>>,
 ) {
     while let Some(message) = rcvd_msg_consumer.recv().await {
-        let id = match &message {
+        let json_content: JsonID = match &message {
             Message::Binary(m) => match serde_json::from_slice(m) {
                 Ok(m) => m,
 
                 Err(e) => {
-                    warn!("error unmarshalling binary result, error: {}", e);
+                    warn!(
+                        "Error unmarshalling binary result, error: {}. \n Message: {:?}",
+                        e,
+                        std::str::from_utf8(m)
+                    );
 
                     continue;
                 }
@@ -326,7 +333,10 @@ pub(super) async fn handle_received_message(
                 Ok(m) => m,
 
                 Err(e) => {
-                    warn!("error unmarshalling string result, error: {}", e);
+                    warn!(
+                        "Error unmarshalling string result, error: {}. \n Message: {}",
+                        e, m
+                    );
 
                     continue;
                 }
@@ -361,12 +371,54 @@ pub(super) async fn handle_received_message(
             }
         };
 
-        let data: JsonResponse = id;
+        let message_clone = message.clone();
+        let notification_state = notification_state.read().await;
+
+        // Check if message is a notifier or a command.
+        let id = if json_content.id.is_null() {
+            debug!("Received a notification");
+            let notification_method: JsonNotificationMethod =
+                match serde_json::from_slice(&message_clone.into_data()) {
+                    Ok(e) => e,
+
+                    Err(e) => {
+                        warn!("Error marshalling notification json, error: {}", e);
+                        continue;
+                    }
+                };
+
+            let id = match notification_state.get(&notification_method.method) {
+                Some(id) => *id,
+
+                None => {
+                    warn!("RPC Notification not registered.");
+                    continue;
+                }
+            };
+
+            id
+        } else {
+            let id = match json_content.id.as_u64() {
+                Some(id) => id,
+
+                None => {
+                    warn!(
+                        "Unsupported ID value type sent by RPC server, ID consist: {:?}",
+                        json_content.id.as_str()
+                    );
+
+                    return;
+                }
+            };
+
+            id
+        };
+
+        drop(notification_state);
 
         let mut receiver_channel_id_mapper = receiver_channel_id_mapper.lock().await;
 
-        // Get client command result sending channel fron mapper and send message back to user.
-        match receiver_channel_id_mapper.get_mut(&data.id) {
+        match receiver_channel_id_mapper.get_mut(&id) {
             Some(val) => {
                 match val.send(message).await {
                     Ok(_) => {}
@@ -384,7 +436,7 @@ pub(super) async fn handle_received_message(
         };
     }
 
-    info!("handle_received_message exited")
+    info!("handle_received_message exited");
 }
 
 /// Middleman between websocket writer/out and database. ws_write_middleman is non-blocking.
@@ -516,21 +568,27 @@ pub(super) async fn ws_reconnect_handler(
     while let Some(_) = ws_reconnect_signal.recv().await {
         info!("reconnecting websocket connection.");
 
-        let mut config_clone = config.lock().await;
+        // Check if client disconnected.
+        let is_ws_disconnected_clone = is_ws_disconnected.read().await;
+        if *is_ws_disconnected_clone {
+            info!("Websocket disconnected by client.");
 
-        let mut is_ws_disconnected_clone = is_ws_disconnected.write().await;
+            return;
+        }
+        drop(is_ws_disconnected_clone);
+
+        let mut backoff = std::time::Duration::new(0, 0);
 
         // Drop all websocket connection if auto reconnect is disabled or websocket is disconnected.
-        if config_clone.disable_auto_reconnect || *is_ws_disconnected_clone {
+        let mut config_clone = config.lock().await;
+        if config_clone.disable_auto_reconnect {
             info!("Websocket reconnect disabled. Dropping all websocket handler.");
+
+            let mut is_ws_disconnected_clone = is_ws_disconnected.write().await;
             *is_ws_disconnected_clone = true;
 
             return;
         }
-
-        drop(is_ws_disconnected_clone);
-
-        let mut backoff = std::time::Duration::new(0, 0);
 
         // Continuosly retry websocket connection.
         loop {

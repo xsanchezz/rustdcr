@@ -1,6 +1,6 @@
 pub mod client;
 pub mod connection;
 mod constants;
-pub mod extensions_commands;
 mod infrastructure;
+pub(crate) use self::infrastructure::Command;
 pub mod notify;

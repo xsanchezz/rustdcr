@@ -20,4 +20,4 @@ pub(super) const ERR_WRONG_AUTH: &str = "authentication failure";
 pub(super) const SEND_BUFFER_SIZE: usize = 50;
 
 /// The required timeframe to send pings to websocket.
-pub(super) const KEEP_ALIVE: u64 = 5;
+pub(super) const KEEP_ALIVE: u64 = 10;

@@ -1,6 +1,5 @@
 #[deny(missing_docs)]
-use crate::rpcclient::constants;
-use std::collections::HashMap;
+use {crate::rpcclient::constants, std::collections::HashMap};
 
 /// NotificationHandlers defines callback function pointers to invoke with
 /// notifications.  Since all of the functions are None by default, all
@@ -71,16 +70,19 @@ pub struct NotificationHandlers {
     pub on_unknown_notification: Option<fn(method: String, params: [u8])>,
 }
 
-/// Used to track the current state of successfully registered notifications so the
-/// state can be automatically re-established on reconnect.
+/// Used to track the current state of successfully registered notifications so the state can be automatically
+// re-established on reconnect.
+/// On notification registration, message sent to the RPC server is copied and stored. This is so that on reconnection
+/// same message can be sent to the server and server can reply to recently registered command channel which calls the callback
+/// function.
 #[derive(Default)]
-pub(super) struct NotificationState {
-    pub(super) notify_blocks: bool,
-    pub(super) notify_work: bool,
-    pub(super) notify_winning_tickets: bool,
-    pub(super) notify_spent_and_missed_tickets: bool,
-    pub(super) notify_new_tickets: bool,
-    pub(super) notify_stake_difficulty: bool,
-    pub(super) notify_new_tx: bool,
-    pub(super) notify_new_tx_verbose: bool,
+pub(crate) struct NotificationState {
+    pub(crate) notify_blocks: Option<u64>,
+    pub(crate) notify_work: Option<u64>,
+    pub(super) notify_winning_tickets: Option<u64>,
+    pub(crate) notify_spent_and_missed_tickets: Option<u64>,
+    pub(crate) notify_new_tickets: Option<u64>,
+    pub(crate) notify_stake_difficulty: Option<u64>,
+    pub(crate) notify_new_tx: Option<u64>,
+    pub(crate) notify_new_tx_verbose: Option<u64>,
 }
