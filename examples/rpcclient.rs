@@ -46,10 +46,10 @@ async fn main() {
     let certs = fs::read_to_string(app_dir).unwrap();
 
     let config = connection::ConnConfig {
-        host: "127.0.0.1:9109".to_string(),
+        host: "127.0.0.1:19109".to_string(),
         certificates: certs,
-        password: "admin".to_string(),
-        user: "admin".to_string(),
+        password: "rpcpassword".to_string(),
+        user: "rpcuser".to_string(),
         ..Default::default()
     };
 
@@ -72,10 +72,5 @@ async fn main() {
 
     client.notify_blocks().await.unwrap();
 
-    tokio::time::delay_for(tokio::time::Duration::from_secs(2)).await;
-
-    println!("Websocket disconnected? {}", client.is_disconnected().await);
     client.wait_for_shutdown();
-
-    println!("done")
 }
