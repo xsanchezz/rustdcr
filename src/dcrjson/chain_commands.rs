@@ -1,13 +1,11 @@
-#[deny(missing_docs)]
-use crate::rpcclient::client::Client;
+#[forbid(missing_docs)]
+use crate::{dcrjson::errors::Error, rpcclient::client::Client};
 
 use super::{future_types, rpc_types};
 
 use tokio::sync::mpsc;
 
-use log::{debug, info, trace, warn};
-
-// {"jsonrpc":"1.0","result":103789,"error":null,"id":2}
+use log::{debug, trace, warn};
 
 // ToDo: Currently, async functions are not allowed in traits.
 // Move all functions to a traits so as to hide methods.
@@ -22,7 +20,7 @@ impl Client {
     /// OnBlockConnected or OnBlockDisconnected.
     ///
     /// NOTE: This is a non-wallet extension and requires a websocket connection.
-    pub async fn notify_blocks(&mut self) -> Result<(), String> {
+    pub async fn notify_blocks(&mut self) -> Result<(), super::errors::Error> {
         // Check if notification handler has already been registered;
         let notification_state = self._notification_state.write().await;
         let notif_id = match notification_state.get(rpc_types::BLOCK_CONNECTED_METHOD_NAME) {
@@ -45,7 +43,7 @@ impl Client {
 
         let config = self.configuration.lock().await;
         if config.http_post_mode {
-            return Err("Websocket required to use this feature.".into());
+            return Err(Error::WebsocketDisabled);
         }
         drop(config);
 
@@ -55,7 +53,7 @@ impl Client {
         );
 
         if block_connected_callback.is_none() && block_disconnected_callback.is_none() {
-            return Err("Blocks connected or disconnected callback functions are required to be defined to use this function.".into());
+            return Err(Error::UnregisteredNotification("Notify blocks".into()));
         }
 
         let (id, cmd) = self.marshal_command(rpc_types::NOTIFY_BLOCKS_METHOD_NAME, &[]);
@@ -63,10 +61,7 @@ impl Client {
         let msg = match cmd {
             Ok(cmd) => cmd,
 
-            Err(e) => {
-                warn!("Error marshalling notify blocks command, error: {}.", e);
-                return Err("Command marshal error".into());
-            }
+            Err(e) => return Err(Error::Marshaller(e)),
         };
 
         let (channel_send, mut channel_recv) = mpsc::channel(1);
@@ -86,7 +81,7 @@ impl Client {
                     e
                 );
 
-                return Err("Error sending notify command blocks to RPC.".into());
+                return Err(Error::WebsocketClose);
             }
         }
 

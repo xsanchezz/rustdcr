@@ -1,7 +1,8 @@
-mod commands;
+mod chain_commands;
+pub mod errors;
 pub mod future_types;
 pub mod rpc_types;
-pub use commands::Extension;
+pub use chain_commands::Extension;
 
 use log::warn;
 

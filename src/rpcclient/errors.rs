@@ -64,7 +64,7 @@ impl std::fmt::Debug for Error {
             Error::RpcHandshake(ref err) => write!(f, ""),
             Error::ProxyAuthenticationRequest(ref err) => write!(f, ""),
             Error::ProxyAuthenticationResponse(ref err) => write!(f, ""),
-            Error::RpcProxyStatus(e) => match e {
+            Error::RpcProxyStatus(ref e) => match e {
                 Some(e) => write!(f, "{}", e),
                 None => write!(f, ""),
             },
