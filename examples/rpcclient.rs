@@ -2,9 +2,8 @@ use dcrdrs::{
     dcrutil::app_data,
     rpcclient::{client, connection, notify},
 };
-use std::{fs, future::Future, path::PathBuf};
+use std::{fs, path::PathBuf};
 
-#[macro_use]
 use slog;
 use slog_scope;
 use slog_stdlog;
@@ -14,12 +13,9 @@ use std::fs::OpenOptions;
 
 use slog::Drain;
 
-#[macro_use]
-extern crate log;
-
 #[tokio::main]
 async fn main() {
-    let log_path = "your_log_file_path.log";
+    let log_path = "rpcclient.log";
     let file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -50,6 +46,7 @@ async fn main() {
     let certs = fs::read_to_string(app_dir).unwrap();
 
     let config = connection::ConnConfig {
+        host: "127.0.0.1:9109".to_string(),
         certificates: certs,
         password: "admin".to_string(),
         user: "admin".to_string(),
@@ -63,7 +60,7 @@ async fn main() {
 
         on_block_connected: Some(|block_header: Vec<u8>, transactions: Vec<Vec<u8>>| {
             println!(
-                "block header: {:?} \n\n transactions: {:?}",
+                "\n\n\nBlock header: {:?} \n\nTransactions: {:?}\n\n\n",
                 block_header, transactions,
             )
         }),
@@ -72,31 +69,10 @@ async fn main() {
     };
 
     let mut client = client::new(config, notif_handler).await.unwrap();
-    // let ll = Arc::new(client);
-    // let clone_cli = Arc::clone(ll.clone());
-    //  task::Poll::is_ready(shutdown(&client));
-    println!("waiting for shutdown!!!");
 
     client.notify_blocks().await.unwrap();
 
-    // tokio::future::poll_fn(a);
-
-    // let b = a.await;
-
-    // let handle = &client.is_disconnected();
-
-    // tokio::spawn(async move {
-    //     tokio::time::delay_for(tokio::time::Duration::from_secs(10)).await;
-    //     println!("is websocket disconnected, {}", handle.await);
-    // });
-
-    // client.shutdown().await;
-
     tokio::time::delay_for(tokio::time::Duration::from_secs(2)).await;
-
-    // client.shutdown().await;
-
-    // tokio::time::delay_for(tokio::time::Duration::from_secs(10)).await;
 
     println!("Websocket disconnected? {}", client.is_disconnected().await);
     client.wait_for_shutdown();
