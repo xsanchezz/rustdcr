@@ -9,7 +9,13 @@ use tokio::{
     sync::mpsc,
 };
 
-use tokio_tungstenite::{stream::Stream, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    stream::Stream,
+    tungstenite::{handshake::client::Request, handshake::headers, Message},
+    MaybeTlsStream, WebSocketStream,
+};
+
+use super::errors::Error;
 
 /// Describes the connection configuration parameters for the client.
 #[derive(Debug)]
@@ -93,7 +99,7 @@ impl ConnConfig {
             SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
             mpsc::Sender<Message>,
         ),
-        String,
+        Error,
     > {
         let ws = match self.dial_websocket().await {
             Ok(ws) => ws,
@@ -116,7 +122,7 @@ impl ConnConfig {
     /// Invokes a websocket stream to rpcclient using optional TLS and socks proxy.
     async fn dial_websocket(
         &mut self,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, String> {
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
         let mut buffered_header = Vec::<u8>::new();
 
         let stream = match self.proxy_host.clone() {
@@ -135,9 +141,9 @@ impl ConnConfig {
                         .dial_connection(&mut buffered_header, &mut stream)
                         .await
                     {
-                        Ok(()) => {}
+                        Ok(_) => {}
 
-                        Err(e) => return Err(e.into()),
+                        Err(e) => return Err(e),
                     }
                 }
 
@@ -148,11 +154,10 @@ impl ConnConfig {
                 let enc = base64::encode(login.as_bytes());
                 let form = format!("Basic {}", enc);
 
-                let wrapped_request =
-                    tokio_tungstenite::tungstenite::handshake::client::Request::builder()
-                        .uri(host)
-                        .header("authorization", form)
-                        .body(());
+                let wrapped_request = Request::builder()
+                    .uri(host)
+                    .header("authorization", form)
+                    .body(());
 
                 match wrapped_request {
                     Ok(request) => {
@@ -161,22 +166,11 @@ impl ConnConfig {
                                 return Ok(websokcet.0);
                             }
 
-                            // ToDo: cast error to get http status code.
-                            Err(e) => {
-                                return Err(error_helper::new(
-                                    constants::ERR_GENERATING_WEBSOCKET,
-                                    e.into(),
-                                ));
-                            }
+                            Err(e) => return Err(Error::RpcHandshake(e)),
                         };
                     }
 
-                    Err(e) => {
-                        return Err(error_helper::new(
-                            constants::ERR_GENERATING_HEADER,
-                            e.into(),
-                        ))
-                    }
+                    Err(e) => return Err(Error::RpcAuthentication),
                 }
             }
 
@@ -186,16 +180,11 @@ impl ConnConfig {
 
     /// Upgrades stream connection to a secured layer.
     /// Add to create stream from should be specified in addr parameter.
-    async fn connect_stream(&mut self, addr: &str) -> Result<MaybeTlsStream<TcpStream>, String> {
+    async fn connect_stream(&mut self, addr: &str) -> Result<MaybeTlsStream<TcpStream>, Error> {
         let tcp_stream = match tokio::net::TcpStream::connect(addr).await {
             Ok(tcp_stream) => tcp_stream,
 
-            Err(e) => {
-                return Err(error_helper::new(
-                    constants::ERR_COULD_NOT_CREATE_STREAM,
-                    e.into(),
-                ))
-            }
+            Err(e) => return Err(Error::TcpStream(e)),
         };
 
         if self.disable_tls {
@@ -214,12 +203,7 @@ impl ConnConfig {
                     .danger_accept_invalid_certs(true);
             }
 
-            Err(e) => {
-                return Err(error_helper::new(
-                    constants::ERR_BUILDING_TLS_CERTIFICATE,
-                    e.into(),
-                ))
-            }
+            Err(e) => return Err(Error::TlsCertificate(e)),
         }
 
         let wrapped_tls_stream = match tls_connector_builder.build() {
@@ -229,23 +213,13 @@ impl ConnConfig {
                     .await
             }
 
-            Err(e) => {
-                return Err(error_helper::new(
-                    constants::ERR_COULD_NOT_GENERATE_TLS_HANDSHAKE,
-                    e.into(),
-                ));
-            }
+            Err(e) => return Err(Error::TlsHandshake(e)),
         };
 
         match wrapped_tls_stream {
             Ok(tls_stream) => return Ok(Stream::Tls(tls_stream)),
 
-            Err(e) => {
-                return Err(error_helper::new(
-                    constants::ERR_COULD_NOT_CREATE_TLS_STREAM,
-                    e.into(),
-                ));
-            }
+            Err(e) => return Err(Error::TlsStream(e)),
         }
     }
 
@@ -277,17 +251,16 @@ impl ConnConfig {
         buffered_header.extend_from_slice(b"\r\n");
     }
 
-    /// Dials stream connection, sending http header to stream if user is
-    /// using a proxy server for websocket connection.
+    /// Dials stream connection, sending http header to stream if user is using a proxy server for websocket connection.
     async fn dial_connection(
         &self,
         buffered_header: &mut Vec<u8>,
         stream: &mut MaybeTlsStream<TcpStream>,
-    ) -> Result<(), String> {
+    ) -> Result<(), Error> {
         match stream.write_all(buffered_header).await {
             Ok(_) => {}
 
-            Err(e) => return Err(error_helper::new(constants::ERR_WRITE_STREAM, e.into())),
+            Err(e) => return Err(Error::ProxyAuthenticationRequest(e)),
         };
 
         let mut read_buffered = Vec::<u8>::new();
@@ -296,11 +269,10 @@ impl ConnConfig {
             match stream.read_to_end(&mut read_buffered).await {
                 Ok(_) => {}
 
-                Err(e) => return Err(error_helper::new(constants::ERR_READ_STREAM, e.into())),
+                Err(e) => return Err(Error::ProxyAuthenticationResponse(e)),
             };
 
-            let mut header_buffer = [httparse::EMPTY_HEADER;
-                tokio_tungstenite::tungstenite::handshake::headers::MAX_HEADERS];
+            let mut header_buffer = [httparse::EMPTY_HEADER; headers::MAX_HEADERS];
             let mut response = httparse::Response::new(&mut header_buffer);
 
             match response.parse(&read_buffered) {
@@ -310,28 +282,11 @@ impl ConnConfig {
                     Status::Complete(_) => match response.code {
                         Some(200) => return Ok(()),
 
-                        Some(401) => {
-                            return Err(error_helper::new(
-                                constants::ERR_WRONG_AUTH,
-                                httparse::Error::Status.into(),
-                            ))
-                        }
-
-                        _ => {
-                            return Err(error_helper::new(
-                                constants::ERR_STATUS_CODE,
-                                httparse::Error::Status.into(),
-                            ))
-                        }
+                        _ => return Err(Error::RpcProxyStatus(response.code)),
                     },
                 },
 
-                Err(e) => {
-                    return Err(error_helper::new(
-                        constants::ERR_PARSING_HEADER_BYTES,
-                        e.into(),
-                    ))
-                }
+                Err(e) => return Err(Error::RpcProxyResponseParse(e)),
             };
         }
     }

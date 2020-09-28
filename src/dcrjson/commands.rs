@@ -239,12 +239,6 @@ pub trait Extension {
     fn version(&self) {}
 }
 
-// impl futures::Future for Client {
-//     type Output = mpsc::Receiver<u64>;
-
-//     fn poll(self: futures::prelude::future::p Pin<&mut Self>, cx: &mut Context<'_>)
-// }
-
 impl Extension for Client {}
 
 fn on_block_connected(
@@ -270,6 +264,8 @@ fn on_block_connected(
 
         None => Vec::new(),
     };
+
+    if params[1].is_null() {}
 
     let hex_transactions: Vec<String> = match serde_json::from_value(params[1].clone()) {
         Ok(e) => e,

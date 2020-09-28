@@ -1,5 +1,5 @@
 #[deny(missing_docs)]
-use super::{connection, constants, infrastructure, notify};
+use super::{connection, constants, errors::Error, infrastructure, notify};
 use crate::helper::waitgroup;
 
 use log::{info, warn};
@@ -24,7 +24,7 @@ pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 pub async fn new(
     config: connection::ConnConfig,
     notif_handler: notify::NotificationHandlers,
-) -> Result<Client, String> {
+) -> Result<Client, Error> {
     let (ws_rcv_chan_send, ws_rcv_chan_rcv) = mpsc::channel(constants::SEND_BUFFER_SIZE);
     let (disconnect_ws_send, disconnect_ws_rcv) = mpsc::channel(1);
     let ws_disconnect_acknowledgement = mpsc::channel(1);
@@ -237,19 +237,14 @@ impl Client {
     /// connection has already been established, or if none of the connection
     /// attempts were successful. The client will be shut down when the passed
     /// context is terminated.
-    pub async fn connect(&mut self) -> Result<(), String> {
+    pub async fn connect(&mut self) -> Result<(), Error> {
         if !*self.is_ws_disconnected.read().await {
-            return Ok(());
+            return Err(Error::WebsocketAlreadyConnected);
         }
 
         let mut config = self.configuration.lock().await;
         if config.http_post_mode {
-            return Err("Not websocket".into());
-        }
-
-        let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
-        if *is_ws_disconnected == false {
-            return Err("Already connected".into());
+            return Err(Error::WebsocketDisabled);
         }
 
         let user_command_channel = mpsc::channel(1);
@@ -265,10 +260,10 @@ impl Client {
 
             Err(e) => return Err(e),
         };
-
-        *is_ws_disconnected = false;
-
         drop(config);
+
+        let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
+        *is_ws_disconnected = false;
         drop(is_ws_disconnected);
 
         self.ws_handler(
