@@ -1,11 +1,11 @@
 #[deny(missing_docs)]
 use crate::rpcclient::client::Client;
 
-use super::{future_types, jsonrpc};
+use super::{future_types, rpc_types};
 
 use tokio::sync::mpsc;
 
-use log::{debug, warn};
+use log::{debug, info, trace, warn};
 
 // {"jsonrpc":"1.0","result":103789,"error":null,"id":2}
 
@@ -23,14 +23,9 @@ impl Client {
     ///
     /// NOTE: This is a non-wallet extension and requires a websocket connection.
     pub async fn notify_blocks(&mut self) -> Result<(), String> {
-        const BLOCK_CONNECTED_METHOD_NAME: &str = "blockconnected";
-        const BLOCK_DISCONNECTED_METHOD_NAME: &str = "blockdisconnected";
-
-        const METHOD_NAME: &str = "notifyblocks";
-
         // Check if notification handler has already been registered;
         let notification_state = self._notification_state.write().await;
-        let notif_id = match notification_state.get(BLOCK_CONNECTED_METHOD_NAME) {
+        let notif_id = match notification_state.get(rpc_types::BLOCK_CONNECTED_METHOD_NAME) {
             Some(notif_id) => Some(*notif_id),
 
             None => None,
@@ -38,7 +33,7 @@ impl Client {
 
         drop(notification_state);
 
-        // Close notification handler channel if already registered.
+        // Close sender notification handler channel if already registered.
         match notif_id {
             Some(id) => {
                 let mut mapper = self.receiver_channel_id_mapper.lock().await;
@@ -54,13 +49,16 @@ impl Client {
         }
         drop(config);
 
-        if self._notification_handler.on_block_connected.is_none()
-            && self._notification_handler.on_block_disconnected.is_none()
-        {
+        let (block_connected_callback, block_disconnected_callback) = (
+            self._notification_handler.on_block_connected,
+            self._notification_handler.on_block_disconnected,
+        );
+
+        if block_connected_callback.is_none() && block_disconnected_callback.is_none() {
             return Err("Blocks connected or disconnected callback functions are required to be defined to use this function.".into());
         }
 
-        let (id, cmd) = self.marshal_command(METHOD_NAME, &[]);
+        let (id, cmd) = self.marshal_command(rpc_types::NOTIFY_BLOCKS_METHOD_NAME, &[]);
 
         let msg = match cmd {
             Ok(cmd) => cmd,
@@ -75,7 +73,7 @@ impl Client {
 
         let cmd = crate::rpcclient::Command {
             id: id,
-            rpc_message: tungstenite::Message::Binary(msg.clone()),
+            rpc_message: tokio_tungstenite::tungstenite::Message::Binary(msg.clone()),
             user_channel: channel_send,
         };
 
@@ -93,19 +91,48 @@ impl Client {
         }
 
         let mut notification_state = self._notification_state.write().await;
-        notification_state.insert(BLOCK_CONNECTED_METHOD_NAME.to_string(), id);
-        notification_state.insert(BLOCK_DISCONNECTED_METHOD_NAME.to_string(), id);
+        notification_state.insert(rpc_types::BLOCK_CONNECTED_METHOD_NAME.to_string(), id);
+        notification_state.insert(rpc_types::BLOCK_DISCONNECTED_METHOD_NAME.to_string(), id);
         drop(notification_state);
 
         tokio::spawn(async move {
             while let Some(msg) = channel_recv.recv().await {
+                trace!("Received block notification");
+
                 let msg = msg.into_data();
 
                 match serde_json::from_slice(&msg) {
                     Ok(val) => {
-                        let result: jsonrpc::JsonResponse = val;
+                        let result: rpc_types::JsonResponse = val;
 
-                        println!("got notify_block resust\n notify block > \t\t{:?}", result);
+                        match result.method.as_str() {
+                            Some(method) => match method {
+                                rpc_types::BLOCK_CONNECTED_METHOD_NAME => {
+                                    match result.params.as_array() {
+                                        Some(params) => {
+                                            on_block_connected(params, block_connected_callback)
+                                        }
+
+                                        None => {
+                                            warn!("Invalid params type for notify blocks, expected an array.");
+                                            continue;
+                                        }
+                                    }
+                                }
+
+                                rpc_types::BLOCK_DISCONNECTED_METHOD_NAME => {}
+
+                                _ => {
+                                    warn!("Server sent an unsupported method type for notify blocks notifications.");
+                                    continue;
+                                }
+                            },
+
+                            None => {
+                                warn!("Invalid method type for notify blocks expected a string.");
+                                continue;
+                            }
+                        }
                     }
 
                     Err(e) => {
@@ -119,6 +146,8 @@ impl Client {
                     }
                 };
             }
+
+            trace!("Closing notify blocks notification handler.")
         });
 
         Ok(())
@@ -132,7 +161,7 @@ impl Client {
     ) -> (u64, Result<Vec<u8>, serde_json::Error>) {
         let id = self.next_id();
 
-        let request = jsonrpc::JsonRequest {
+        let request = rpc_types::JsonRequest {
             jsonrpc: "1.0",
             id: id,
             method: method,
@@ -217,3 +246,59 @@ pub trait Extension {
 // }
 
 impl Extension for Client {}
+
+fn on_block_connected(
+    params: &Vec<serde_json::Value>,
+    on_block_connected: Option<fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>)>,
+) {
+    let callback = match on_block_connected {
+        Some(callback) => callback,
+
+        None => {
+            debug!("On block notifier not registered by client.");
+            return;
+        }
+    };
+
+    if params.len() != 2 {
+        warn!("Server sent wrong number of parameters on block connected notification handler");
+        return;
+    }
+
+    let block_header = match super::parse_hex_parameters(&params[0]) {
+        Some(e) => e,
+
+        None => Vec::new(),
+    };
+
+    let hex_transactions: Vec<String> = match serde_json::from_value(params[1].clone()) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!(
+                "Error marshalling on block transaction hex transaction values, error: {}",
+                e
+            );
+
+            Vec::new()
+        }
+    };
+
+    let mut transactions = Vec::new();
+
+    for hex_transaction in hex_transactions {
+        match ring::test::from_hex(hex_transaction.as_str()) {
+            Ok(v) => transactions.push(v),
+
+            Err(e) => {
+                warn!(
+                    "Error getting hex value transaction on block connected notifier, error: {}",
+                    e
+                );
+                return;
+            }
+        };
+    }
+
+    callback(block_header, transactions);
+}

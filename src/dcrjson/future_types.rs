@@ -10,7 +10,7 @@ use core::pin::Pin;
 
 use log::warn;
 
-use super::jsonrpc;
+use super::rpc_types;
 
 pub struct AddNodeFuture {}
 
@@ -43,7 +43,7 @@ impl Future for NotifyBlocksFuture {
                 Some(msg) => {
                     match serde_json::from_slice(&msg.into_data()) {
                         Ok(val) => {
-                            let result: jsonrpc::JsonResponse = val;
+                            let result: rpc_types::JsonResponse = val;
 
                             return Poll::Ready(Ok(()));
                         }

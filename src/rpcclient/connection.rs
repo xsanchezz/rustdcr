@@ -1,6 +1,5 @@
-#[deny(missing_docs)]
+#[forbid(missing_docs)]
 use httparse::Status;
-use reqwest::header;
 
 use crate::{helper::error_helper, rpcclient::constants};
 use futures::{stream::SplitStream, StreamExt};
@@ -152,7 +151,7 @@ impl ConnConfig {
                 let wrapped_request =
                     tokio_tungstenite::tungstenite::handshake::client::Request::builder()
                         .uri(host)
-                        .header(header::AUTHORIZATION, form)
+                        .header("authorization", form)
                         .body(());
 
                 match wrapped_request {
@@ -271,7 +270,7 @@ impl ConnConfig {
         header_string.push_str(&base64::encode(login.as_str()));
 
         buffered_header.extend_from_slice(
-            &format!("{}: {}\r\n", header::PROXY_AUTHORIZATION, header_string).as_bytes(),
+            &format!("{}: {}\r\n", "proxy-authorization", header_string).as_bytes(),
         );
 
         // Add trailing empty line
@@ -300,8 +299,8 @@ impl ConnConfig {
                 Err(e) => return Err(error_helper::new(constants::ERR_READ_STREAM, e.into())),
             };
 
-            let mut header_buffer =
-                [httparse::EMPTY_HEADER; tungstenite::handshake::headers::MAX_HEADERS];
+            let mut header_buffer = [httparse::EMPTY_HEADER;
+                tokio_tungstenite::tungstenite::handshake::headers::MAX_HEADERS];
             let mut response = httparse::Response::new(&mut header_buffer);
 
             match response.parse(&read_buffered) {

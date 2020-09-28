@@ -10,7 +10,8 @@ use std::collections::{HashMap, VecDeque};
 
 use tokio::{net::TcpStream, sync::mpsc, time};
 use tokio_tungstenite::{
-    tungstenite::Error as WSError, tungstenite::Message, MaybeTlsStream, WebSocketStream,
+    tungstenite, tungstenite::Error as WSError, tungstenite::Message, MaybeTlsStream,
+    WebSocketStream,
 };
 
 pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;

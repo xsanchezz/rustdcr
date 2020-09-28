@@ -1,3 +1,4 @@
+#[cfg(feature = "rpcclient")]
 pub mod client;
 pub mod connection;
 mod constants;
