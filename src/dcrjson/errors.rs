@@ -1,4 +1,4 @@
-pub enum Error {
+pub enum RpcJsonError {
     /// An rpcclient error.
     WebsocketDisabled,
     /// Unregisted on server notification callback.
@@ -6,27 +6,38 @@ pub enum Error {
     /// Error marshalling server response.
     Marshaller(serde_json::Error),
     /// On websocket channel closure.
-    WebsocketClose,
+    WebsocketClosed,
 }
 
-impl std::fmt::Display for Error {
+impl std::fmt::Display for RpcJsonError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            Error::WebsocketDisabled => write!(f, ""),
-            Error::UnregisteredNotification(ref e) => write!(f, ""),
-            Error::Marshaller(ref e) => write!(f, ""),
-            Error::WebsocketClose => write!(f, ""),
+            RpcJsonError::WebsocketDisabled => {
+                write!(f, "JSON command requires websocket connection.")
+            }
+            RpcJsonError::UnregisteredNotification(ref e) => {
+                write!(f, "Unregistered notification callback, type: {}", e)
+            }
+            RpcJsonError::Marshaller(ref e) => write!(f, "Marshaller error: {}", e),
+            RpcJsonError::WebsocketClosed => write!(f, "Websocket connection closed."),
         }
     }
 }
 
-impl std::fmt::Debug for Error {
+impl std::fmt::Debug for RpcJsonError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            Error::WebsocketDisabled => write!(f, ""),
-            Error::UnregisteredNotification(ref e) => write!(f, ""),
-            Error::Marshaller(ref e) => write!(f, ""),
-            Error::WebsocketClose => write!(f, ""),
+            RpcJsonError::WebsocketDisabled => write!(
+                f,
+                "RpcJsonError(JSON command requires websocket connection)"
+            ),
+            RpcJsonError::UnregisteredNotification(ref e) => write!(
+                f,
+                "RpcJsonError(Unregistered notification callback, type: {})",
+                e
+            ),
+            RpcJsonError::Marshaller(ref e) => write!(f, "RpcJsonError(Marshaller error: {})", e),
+            RpcJsonError::WebsocketClosed => write!(f, "RpcJsonError(Websocket connection closed)"),
         }
     }
 }

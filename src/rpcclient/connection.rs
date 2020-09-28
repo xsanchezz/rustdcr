@@ -1,7 +1,6 @@
 #[forbid(missing_docs)]
 use httparse::Status;
 
-use crate::{helper::error_helper, rpcclient::constants};
 use futures::{stream::SplitStream, StreamExt};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -15,7 +14,9 @@ use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
 };
 
-use super::errors::Error;
+use super::RpcClientError;
+
+use log::warn;
 
 /// Describes the connection configuration parameters for the client.
 #[derive(Debug)]
@@ -99,7 +100,7 @@ impl ConnConfig {
             SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
             mpsc::Sender<Message>,
         ),
-        Error,
+        RpcClientError,
     > {
         let ws = match self.dial_websocket().await {
             Ok(ws) => ws,
@@ -122,7 +123,7 @@ impl ConnConfig {
     /// Invokes a websocket stream to rpcclient using optional TLS and socks proxy.
     async fn dial_websocket(
         &mut self,
-    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, Error> {
+    ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, RpcClientError> {
         let mut buffered_header = Vec::<u8>::new();
 
         let stream = match self.proxy_host.clone() {
@@ -166,11 +167,18 @@ impl ConnConfig {
                                 return Ok(websokcet.0);
                             }
 
-                            Err(e) => return Err(Error::RpcHandshake(e)),
+                            Err(e) => {
+                                warn!("Error creating websocket handshake, error: {}", e);
+                                return Err(RpcClientError::RpcHandshake(e));
+                            }
                         };
                     }
 
-                    Err(e) => return Err(Error::RpcAuthentication),
+                    Err(e) => {
+                        warn!("Error building RPC authenticating request, error: {}.", e);
+
+                        return Err(RpcClientError::RpcAuthenticationRequest);
+                    }
                 }
             }
 
@@ -180,11 +188,17 @@ impl ConnConfig {
 
     /// Upgrades stream connection to a secured layer.
     /// Add to create stream from should be specified in addr parameter.
-    async fn connect_stream(&mut self, addr: &str) -> Result<MaybeTlsStream<TcpStream>, Error> {
+    async fn connect_stream(
+        &mut self,
+        addr: &str,
+    ) -> Result<MaybeTlsStream<TcpStream>, RpcClientError> {
         let tcp_stream = match tokio::net::TcpStream::connect(addr).await {
             Ok(tcp_stream) => tcp_stream,
 
-            Err(e) => return Err(Error::TcpStream(e)),
+            Err(e) => {
+                warn!("Error connecting to tcp stream, error: {}", e);
+                return Err(RpcClientError::TcpStream(e));
+            }
         };
 
         if self.disable_tls {
@@ -203,7 +217,10 @@ impl ConnConfig {
                     .danger_accept_invalid_certs(true);
             }
 
-            Err(e) => return Err(Error::TlsCertificate(e)),
+            Err(e) => {
+                warn!("Error parsing tls certificate, error: {}", e);
+                return Err(RpcClientError::TlsCertificate(e));
+            }
         }
 
         let wrapped_tls_stream = match tls_connector_builder.build() {
@@ -213,13 +230,19 @@ impl ConnConfig {
                     .await
             }
 
-            Err(e) => return Err(Error::TlsHandshake(e)),
+            Err(e) => {
+                warn!("Error creating tls handshake, error: {}", e);
+                return Err(RpcClientError::TlsHandshake(e));
+            }
         };
 
         match wrapped_tls_stream {
             Ok(tls_stream) => return Ok(Stream::Tls(tls_stream)),
 
-            Err(e) => return Err(Error::TlsStream(e)),
+            Err(e) => {
+                warn!("Error creating tls stream, error: {}", e);
+                return Err(RpcClientError::TlsStream(e));
+            }
         }
     }
 
@@ -256,11 +279,17 @@ impl ConnConfig {
         &self,
         buffered_header: &mut Vec<u8>,
         stream: &mut MaybeTlsStream<TcpStream>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), RpcClientError> {
         match stream.write_all(buffered_header).await {
             Ok(_) => {}
 
-            Err(e) => return Err(Error::ProxyAuthenticationRequest(e)),
+            Err(e) => {
+                warn!(
+                    "Error writing request header to proxied stream, error: {}",
+                    e
+                );
+                return Err(RpcClientError::ProxyAuthenticationRequest(e));
+            }
         };
 
         let mut read_buffered = Vec::<u8>::new();
@@ -269,7 +298,13 @@ impl ConnConfig {
             match stream.read_to_end(&mut read_buffered).await {
                 Ok(_) => {}
 
-                Err(e) => return Err(Error::ProxyAuthenticationResponse(e)),
+                Err(e) => {
+                    warn!(
+                        "Error reading proxied RPC server received bytes, error: {}.",
+                        e
+                    );
+                    return Err(RpcClientError::ProxyAuthenticationResponse(e));
+                }
             };
 
             let mut header_buffer = [httparse::EMPTY_HEADER; headers::MAX_HEADERS];
@@ -282,11 +317,18 @@ impl ConnConfig {
                     Status::Complete(_) => match response.code {
                         Some(200) => return Ok(()),
 
-                        _ => return Err(Error::RpcProxyStatus(response.code)),
+                        _ => {
+                            warn!(
+                                "HTTP status error from proxied websocket, error code: {:?}.",
+                                response.code
+                            );
+
+                            return Err(RpcClientError::RpcProxyStatus(response.code));
+                        }
                     },
                 },
 
-                Err(e) => return Err(Error::RpcProxyResponseParse(e)),
+                Err(e) => return Err(RpcClientError::RpcProxyResponseParse(e)),
             };
         }
     }

@@ -1,5 +1,5 @@
 #[deny(missing_docs)]
-use super::{connection, constants, errors::Error, infrastructure, notify};
+use super::{connection, constants, infrastructure, notify, RpcClientError};
 use crate::helper::waitgroup;
 
 use log::{info, warn};
@@ -24,18 +24,18 @@ pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 pub async fn new(
     config: connection::ConnConfig,
     notif_handler: notify::NotificationHandlers,
-) -> Result<Client, Error> {
+) -> Result<Client, RpcClientError> {
     let (ws_rcv_chan_send, ws_rcv_chan_rcv) = mpsc::channel(constants::SEND_BUFFER_SIZE);
     let (disconnect_ws_send, disconnect_ws_rcv) = mpsc::channel(1);
     let ws_disconnect_acknowledgement = mpsc::channel(1);
 
     let mut client = Client {
-        _id: AtomicU64::new(1),
+        id: AtomicU64::new(1),
         configuration: Arc::new(Mutex::new(config)),
         disconnect_ws: disconnect_ws_send,
         is_ws_disconnected: Arc::new(RwLock::new(true)),
-        _notification_handler: Arc::new(notif_handler),
-        _notification_state: Arc::new(RwLock::new(HashMap::new())),
+        notification_handler: Arc::new(notif_handler),
+        notification_state: Arc::new(RwLock::new(HashMap::new())),
         receiver_channel_id_mapper: Arc::new(Mutex::new(HashMap::new())),
         requests_queue_container: Arc::new(Mutex::new(VecDeque::new())),
         user_command: ws_rcv_chan_send,
@@ -49,7 +49,7 @@ pub async fn new(
     client.waitgroup.add(1);
 
     if !config.disable_connect_on_new && !config.http_post_mode {
-        println!("establishing websocket connection");
+        info!("establishing websocket connection");
 
         match config.ws_split_stream().await {
             Ok(ws) => {
@@ -88,7 +88,7 @@ pub async fn new(
 /// All field in `Client` are async safe.
 pub struct Client {
     /// tracks asynchronous requests and is to be updated at realtime.
-    pub(crate) _id: AtomicU64,
+    pub(crate) id: AtomicU64,
 
     /// A channel that tunnels converted users messages to ws_write_middleman to be consumed by websocket writer.
     pub(crate) user_command: mpsc::Sender<infrastructure::Command>, // ToDo: not needed
@@ -104,11 +104,14 @@ pub struct Client {
 
     /// Contains all notification callback functions. It is protected by a mutex lock.
     /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
-    pub(crate) _notification_handler: Arc<notify::NotificationHandlers>,
+    pub(crate) notification_handler: Arc<notify::NotificationHandlers>,
 
-    /// Stores state of notification handlers so that they can be re-registered on
-    /// websocket disconnect. States are mapped method name to receiver channel ID.
-    pub(crate) _notification_state: Arc<RwLock<HashMap<String, u64>>>,
+    /// Used to track the current state of successfully registered notifications so the state can be automatically
+    // re-established on reconnect.
+    /// On notification registration, message sent to the RPC server is copied and stored. This is so that on reconnection
+    /// same message can be sent to the server and server can reply to recently registered command channel which calls the callback
+    /// function.
+    pub(crate) notification_state: Arc<RwLock<HashMap<String, u64>>>,
 
     /// Stores all requests to be be sent to the RPC server.
     requests_queue_container: Arc<Mutex<VecDeque<Message>>>,
@@ -180,7 +183,7 @@ impl Client {
             handle_rcvd_msg.1,
             ws_disconnect_acknowledgement,
             self.receiver_channel_id_mapper.clone(),
-            self._notification_state.clone(),
+            self.notification_state.clone(),
         );
 
         let ws_write_middleman = infrastructure::ws_write_middleman(
@@ -193,7 +196,7 @@ impl Client {
         );
 
         let on_client_connected = self
-            ._notification_handler
+            .notification_handler
             .on_client_connected
             .unwrap_or(|| {});
 
@@ -224,7 +227,7 @@ impl Client {
     /// if a custom request is being created and used this function should be used to ensure the ID
     /// is unique amongst all requests being made.
     pub(crate) fn next_id(&self) -> u64 {
-        self._id.fetch_add(1, Ordering::SeqCst)
+        self.id.fetch_add(1, Ordering::SeqCst)
     }
 
     /// Establishes the initial websocket connection.  This is necessary when a client was
@@ -237,14 +240,14 @@ impl Client {
     /// connection has already been established, or if none of the connection
     /// attempts were successful. The client will be shut down when the passed
     /// context is terminated.
-    pub async fn connect(&mut self) -> Result<(), Error> {
+    pub async fn connect(&mut self) -> Result<(), RpcClientError> {
         if !*self.is_ws_disconnected.read().await {
-            return Err(Error::WebsocketAlreadyConnected);
+            return Err(RpcClientError::WebsocketAlreadyConnected);
         }
 
         let mut config = self.configuration.lock().await;
         if config.http_post_mode {
-            return Err(Error::WebsocketDisabled);
+            return Err(RpcClientError::WebsocketDisabled);
         }
 
         let user_command_channel = mpsc::channel(1);
@@ -342,7 +345,7 @@ impl Client {
     }
 
     async fn unregister_notification_state(&mut self) {
-        let mut notification_state = self._notification_state.write().await;
+        let mut notification_state = self.notification_state.write().await;
 
         notification_state.clear();
     }

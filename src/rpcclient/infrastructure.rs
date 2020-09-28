@@ -1,5 +1,5 @@
 #[deny(missing_docs)]
-use crate::rpcclient::{connection, constants, notify::NotificationState};
+use crate::rpcclient::{connection, constants};
 
 use log::{debug, info, warn};
 
@@ -111,20 +111,20 @@ pub(super) async fn handle_websocket_out(
                 }
             }
 
-            // // A ping command is sent to server if no RPC command is sent within time frame of 5secs.
-            // // This is to keep alive connection between websocket server and client.
-            // _ = &mut delay => {
-            //     debug!("sending keep alive ping to websocket server");
-            //     delay.reset(time::Instant::now() + time::Duration::from_secs(constants::KEEP_ALIVE));
+            // A ping command is sent to server if no RPC command is sent within time frame of 5secs.
+            // This is to keep alive connection between websocket server and client.
+            _ = &mut delay => {
+                debug!("sending keep alive ping to websocket server");
+                delay.reset(time::Instant::now() + time::Duration::from_secs(constants::KEEP_ALIVE));
 
-            //     match ping_sender.send(Message::Ping(Vec::new())).await {
-            //         Ok(_) => {
-            //             continue;
-            //         },
+                match ping_sender.send(Message::Ping(Vec::new())).await {
+                    Ok(_) => {
+                        continue;
+                    },
 
-            //         Err(e) => warn!("error sending ping message, error: {}", e),
-            //     };
-            // }
+                    Err(e) => warn!("error sending ping message, error: {}", e),
+                };
+            }
 
             e = request_queue_updated.recv() => {
                 match e {

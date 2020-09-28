@@ -1,5 +1,5 @@
 #[forbid(missing_docs)]
-use crate::{dcrjson::errors::Error, rpcclient::client::Client};
+use crate::{dcrjson::RpcJsonError, rpcclient::client::Client};
 
 use super::{future_types, rpc_types};
 
@@ -20,9 +20,9 @@ impl Client {
     /// OnBlockConnected or OnBlockDisconnected.
     ///
     /// NOTE: This is a non-wallet extension and requires a websocket connection.
-    pub async fn notify_blocks(&mut self) -> Result<(), super::errors::Error> {
+    pub async fn notify_blocks(&mut self) -> Result<(), RpcJsonError> {
         // Check if notification handler has already been registered;
-        let notification_state = self._notification_state.write().await;
+        let notification_state = self.notification_state.write().await;
         let notif_id = match notification_state.get(rpc_types::BLOCK_CONNECTED_METHOD_NAME) {
             Some(notif_id) => Some(*notif_id),
 
@@ -43,17 +43,19 @@ impl Client {
 
         let config = self.configuration.lock().await;
         if config.http_post_mode {
-            return Err(Error::WebsocketDisabled);
+            return Err(RpcJsonError::WebsocketDisabled);
         }
         drop(config);
 
         let (block_connected_callback, block_disconnected_callback) = (
-            self._notification_handler.on_block_connected,
-            self._notification_handler.on_block_disconnected,
+            self.notification_handler.on_block_connected,
+            self.notification_handler.on_block_disconnected,
         );
 
         if block_connected_callback.is_none() && block_disconnected_callback.is_none() {
-            return Err(Error::UnregisteredNotification("Notify blocks".into()));
+            return Err(RpcJsonError::UnregisteredNotification(
+                "Notify blocks".into(),
+            ));
         }
 
         let (id, cmd) = self.marshal_command(rpc_types::NOTIFY_BLOCKS_METHOD_NAME, &[]);
@@ -61,7 +63,7 @@ impl Client {
         let msg = match cmd {
             Ok(cmd) => cmd,
 
-            Err(e) => return Err(Error::Marshaller(e)),
+            Err(e) => return Err(RpcJsonError::Marshaller(e)),
         };
 
         let (channel_send, mut channel_recv) = mpsc::channel(1);
@@ -81,11 +83,11 @@ impl Client {
                     e
                 );
 
-                return Err(Error::WebsocketClose);
+                return Err(RpcJsonError::WebsocketClosed);
             }
         }
 
-        let mut notification_state = self._notification_state.write().await;
+        let mut notification_state = self.notification_state.write().await;
         notification_state.insert(rpc_types::BLOCK_CONNECTED_METHOD_NAME.to_string(), id);
         notification_state.insert(rpc_types::BLOCK_DISCONNECTED_METHOD_NAME.to_string(), id);
         drop(notification_state);

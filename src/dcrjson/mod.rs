@@ -1,5 +1,6 @@
 mod chain_commands;
-pub mod errors;
+mod errors;
+pub use errors::RpcJsonError;
 pub mod future_types;
 pub mod rpc_types;
 pub use chain_commands::Extension;

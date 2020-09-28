@@ -69,20 +69,3 @@ pub struct NotificationHandlers {
     /// notification type or the caller is using a custom notification this package does not know about.
     pub on_unknown_notification: Option<fn(method: String, params: [u8])>,
 }
-
-/// Used to track the current state of successfully registered notifications so the state can be automatically
-// re-established on reconnect.
-/// On notification registration, message sent to the RPC server is copied and stored. This is so that on reconnection
-/// same message can be sent to the server and server can reply to recently registered command channel which calls the callback
-/// function.
-#[derive(Default)]
-pub(crate) struct NotificationState {
-    pub(crate) notify_blocks: Option<u64>,
-    pub(crate) notify_work: Option<u64>,
-    pub(super) notify_winning_tickets: Option<u64>,
-    pub(crate) notify_spent_and_missed_tickets: Option<u64>,
-    pub(crate) notify_new_tickets: Option<u64>,
-    pub(crate) notify_stake_difficulty: Option<u64>,
-    pub(crate) notify_new_tx: Option<u64>,
-    pub(crate) notify_new_tx_verbose: Option<u64>,
-}

@@ -18,7 +18,7 @@ async fn main() {
     let certs = fs::read_to_string(app_dir).unwrap();
 
     let config = connection::ConnConfig {
-        host: "127.0.0.1:19109".to_string(),
+        host: "127.0.0.1:9109".to_string(),
         certificates: certs,
         password: "rpcpassword".to_string(),
         user: "rpcuser".to_string(),

@@ -1,9 +1,9 @@
-pub enum Error {
+pub enum RpcClientError {
     /// On json marshalling error.
     Marshaller(serde_json::Error),
 
     /// Invalid authentication to RPC.
-    RpcAuthentication,
+    RpcAuthenticationRequest,
     /// Invalid tcp connection to RPC server.
     TcpStream(std::io::Error),
     /// Invalid tls cerificate error.
@@ -29,48 +29,86 @@ pub enum Error {
     WebsocketDisabled,
 }
 
-impl std::fmt::Display for Error {
+impl std::fmt::Display for RpcClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            Error::Marshaller(ref err) => write!(f, ""),
-            Error::RpcAuthentication => write!(f, ""),
-            Error::TcpStream(ref err) => write!(f, ""),
-            Error::TlsCertificate(ref err) => write!(f, ""),
-            Error::TlsHandshake(ref err) => write!(f, ""),
-            Error::TlsStream(ref err) => write!(f, ""),
-            Error::RpcHandshake(ref err) => write!(f, ""),
-            Error::ProxyAuthenticationRequest(ref err) => write!(f, ""),
-            Error::ProxyAuthenticationResponse(ref err) => write!(f, ""),
-            Error::RpcProxyStatus(e) => match e {
-                Some(e) => write!(f, "{}", e),
-                None => write!(f, ""),
+            RpcClientError::Marshaller(ref err) => write!(f, "Marshaller error: {}.", err),
+            RpcClientError::RpcAuthenticationRequest => write!(f, "RPC authentication error."),
+            RpcClientError::TcpStream(ref err) => write!(f, "Tcp stream error: {}.", err),
+            RpcClientError::TlsCertificate(ref err) => write!(f, "Tls certificate error: {}.", err),
+            RpcClientError::TlsHandshake(ref err) => write!(f, "Tls handshake error: {}.", err),
+            RpcClientError::TlsStream(ref err) => write!(f, "Tls stream error: {}.", err),
+            RpcClientError::RpcHandshake(ref err) => write!(f, "RPC handshake error: {}.", err),
+            RpcClientError::ProxyAuthenticationRequest(ref err) => {
+                write!(f, "Proxy authentication request error: {}.", err)
+            }
+            RpcClientError::ProxyAuthenticationResponse(ref err) => {
+                write!(f, "Proxy authentication response error: {}.", err)
+            }
+            RpcClientError::RpcProxyStatus(e) => match e {
+                Some(e) => write!(f, "RPC proxy HTTP status error: {}.", e),
+                None => write!(f, "RPC proxy HTTP error."),
             },
-            Error::RpcProxyResponseParse(ref err) => write!(f, ""),
-            Error::WebsocketAlreadyConnected => write!(f, ""),
-            Error::WebsocketDisabled => write!(f, ""),
+            RpcClientError::RpcProxyResponseParse(ref err) => {
+                write!(f, "RPC proxied reponse error: {}", err)
+            }
+            RpcClientError::WebsocketAlreadyConnected => {
+                write!(f, "Websocket already connected to RPC server.")
+            }
+            RpcClientError::WebsocketDisabled => {
+                write!(f, "Websocket disabled, client using HTTP Post mode.")
+            }
         }
     }
 }
 
-impl std::fmt::Debug for Error {
+impl std::fmt::Debug for RpcClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            Error::Marshaller(ref err) => write!(f, ""),
-            Error::RpcAuthentication => write!(f, ""),
-            Error::TcpStream(ref err) => write!(f, ""),
-            Error::TlsCertificate(ref err) => write!(f, ""),
-            Error::TlsHandshake(ref err) => write!(f, ""),
-            Error::TlsStream(ref err) => write!(f, ""),
-            Error::RpcHandshake(ref err) => write!(f, ""),
-            Error::ProxyAuthenticationRequest(ref err) => write!(f, ""),
-            Error::ProxyAuthenticationResponse(ref err) => write!(f, ""),
-            Error::RpcProxyStatus(ref e) => match e {
-                Some(e) => write!(f, "{}", e),
-                None => write!(f, ""),
+            RpcClientError::Marshaller(ref err) => {
+                write!(f, "RpcClientError(Marshaller error: {})", err)
+            }
+            RpcClientError::RpcAuthenticationRequest => {
+                write!(f, "RpcClientError(RPC authentication error)")
+            }
+            RpcClientError::TcpStream(ref err) => {
+                write!(f, "RpcClientError(Tcp stream error: {})", err)
+            }
+            RpcClientError::TlsCertificate(ref err) => {
+                write!(f, "RpcClientError(Tls certificate error: {}.)", err)
+            }
+            RpcClientError::TlsHandshake(ref err) => {
+                write!(f, "RpcClientError(Tls handshake error: {})", err)
+            }
+            RpcClientError::TlsStream(ref err) => {
+                write!(f, "RpcClientError(Tls stream error: {})", err)
+            }
+            RpcClientError::RpcHandshake(ref err) => {
+                write!(f, "RpcClientError(RPC handshake error: {})", err)
+            }
+            RpcClientError::ProxyAuthenticationRequest(ref err) => write!(
+                f,
+                "RpcClientError(Proxy authentication request error: {})",
+                err
+            ),
+            RpcClientError::ProxyAuthenticationResponse(ref err) => write!(
+                f,
+                "RpcClientError(Proxy authentication response error: {})",
+                err
+            ),
+            RpcClientError::RpcProxyStatus(ref e) => match e {
+                Some(e) => write!(f, "RpcClientError(RPC proxy HTTP status error: {})", e),
+                None => write!(f, "RpcClientError(RPC proxy HTTP error)"),
             },
-            Error::RpcProxyResponseParse(ref err) => write!(f, ""),
-            Error::WebsocketAlreadyConnected => write!(f, ""),
-            Error::WebsocketDisabled => write!(f, ""),
+            RpcClientError::RpcProxyResponseParse(ref err) => {
+                write!(f, "RpcClientError(RPC proxied reponse error: {})", err)
+            }
+            RpcClientError::WebsocketAlreadyConnected => {
+                write!(f, "Websocket already connected to RPC server")
+            }
+            RpcClientError::WebsocketDisabled => {
+                write!(f, "Websocket disabled, client using HTTP Post mode")
+            }
         }
     }
 }
