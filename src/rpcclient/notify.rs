@@ -1,7 +1,7 @@
 //! Notification Handlers
 //! On notification callback functions for websocket.
 
-use {crate::rpcclient::constants, std::collections::HashMap};
+use {crate::chaincfg::chainhash::constants, std::collections::HashMap};
 
 /// NotificationHandlers defines callback function pointers to invoke with notifications.
 /// Since all of the functions are None by default, all notifications are effectively
@@ -43,8 +43,7 @@ pub struct NotificationHandlers {
 
     /// on_winning_tickets callback function is invoked when a block is connected and eligible tickets
     /// to be voted on for this chain are given.
-    pub on_winning_tickets:
-        Option<fn(block_hash: i64, tickets: Vec<&[u8; crate::rpcclient::constants::HASH_SIZE]>)>,
+    pub on_winning_tickets: Option<fn(block_hash: i64, tickets: Vec<&[u8; constants::HASH_SIZE]>)>,
 
     /// on_spent_and_missed_tickets callback function is invoked when a block is connected to the
     /// longest `best` chain and tickets are spent or missed.
@@ -53,7 +52,7 @@ pub struct NotificationHandlers {
             hash: &[u8; constants::HASH_SIZE],
             height: i64,
             stake_diff: i64,
-            tickets: HashMap<[u8; constants::HASH_SIZE], bool>,
+            tickets: HashMap<[u8; crate::chaincfg::chainhash::constants::HASH_SIZE], bool>,
         ),
     >,
 

@@ -8,6 +8,10 @@ pub(super) const BLOCK_CONNECTED_NOTIFICATION_METHOD: &str = "blockconnected";
 pub(super) const BLOCK_DISCONNECTED_NOTIFICATION_METHOD: &str = "blockdisconnected";
 /// Issues a notify blocks command to RPC server.
 pub(super) const NOTIFY_BLOCKS_METHOD: &str = "notifyblocks";
+/// Issues a notify on new tickets command to RPC server.
+pub(super) const NOTIFY_NEW_TICKETS_METHOD: &str = "notifynewtickets";
+/// Notifies a client when new tickets have matured.
+pub(super) const NEW_TICKETS_NOTIFICATION_METHOD: &str = "newtickets";
 
 /// Implements JSON RPC request structure to server.
 #[derive(serde::Serialize)]

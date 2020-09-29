@@ -32,7 +32,7 @@ pub async fn new(
 
     let mut client = Client {
         id: AtomicU64::new(1),
-        configuration: Arc::new(Mutex::new(config)),
+        configuration: Arc::new(RwLock::new(config)),
         disconnect_ws: disconnect_ws_send,
         is_ws_disconnected: Arc::new(RwLock::new(true)),
         notification_handler: Arc::new(notif_handler),
@@ -46,7 +46,7 @@ pub async fn new(
     };
 
     let config = client.configuration.clone();
-    let mut config = config.lock().await;
+    let mut config = config.write().await;
 
     client.waitgroup.add(1);
 
@@ -102,7 +102,7 @@ pub struct Client {
     ws_disconnected_acknowledgement: mpsc::Receiver<()>,
 
     /// Holds the connection configuration associated with the client.
-    pub(crate) configuration: Arc<Mutex<connection::ConnConfig>>,
+    pub(crate) configuration: Arc<RwLock<connection::ConnConfig>>,
 
     /// Contains all notification callback functions. It is protected by a mutex lock.
     /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
@@ -252,7 +252,7 @@ impl Client {
             return Err(RpcClientError::WebsocketAlreadyConnected);
         }
 
-        let mut config = self.configuration.lock().await;
+        let mut config = self.configuration.write().await;
         if config.http_post_mode {
             return Err(RpcClientError::WebsocketDisabled);
         }

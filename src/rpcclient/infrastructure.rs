@@ -564,7 +564,7 @@ pub(super) async fn ws_write_middleman(
 /// On websocket disconnect a new websocket channel is to be created and sent across handler for
 /// a successful reconnection. Reconnection is only called if Auto Connect is enabled.
 pub(super) async fn ws_reconnect_handler(
-    config: Arc<Mutex<connection::ConnConfig>>,
+    config: Arc<RwLock<connection::ConnConfig>>,
     is_ws_disconnected: Arc<RwLock<bool>>,
     mut ws_reconnect_signal: mpsc::Receiver<()>,
     mut websocket_read_new: mpsc::Sender<Websocket>,
@@ -587,7 +587,7 @@ pub(super) async fn ws_reconnect_handler(
         let mut backoff = std::time::Duration::new(0, 0);
 
         // Drop all websocket connection if auto reconnect is disabled or websocket is disconnected.
-        let mut config_clone = config.lock().await;
+        let mut config_clone = config.write().await;
         if config_clone.disable_auto_reconnect {
             info!("Websocket reconnect disabled. Dropping all websocket handler.");
 

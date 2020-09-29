@@ -1,5 +1,3 @@
-/// HashSize of array used to store hashes.
-pub(super) const HASH_SIZE: usize = 32;
 /// Time required to retry connecting to websocket.
 pub(super) const CONNECTION_RETRY_INTERVAL_SECS: std::time::Duration =
     std::time::Duration::from_secs(10);
