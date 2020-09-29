@@ -2,4 +2,4 @@
 pub const HASH_SIZE: usize = 32;
 
 // MaxHashStringSize is the maximum length of a Hash hash string.
-pub const MAX_HASH_STRING_SIZE: u64 = HASH_SIZE as u64 * 2;
+pub const MAX_HASH_STRING_SIZE: usize = HASH_SIZE * 2;

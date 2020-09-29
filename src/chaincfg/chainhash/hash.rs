@@ -1,42 +1,132 @@
-use super::{constants::HASH_SIZE, ChainHashErrors};
+use {
+    super::{constants::HASH_SIZE, ChainHashErrors},
+    std::convert::TryInto,
+};
 
 pub struct Hash([u8; HASH_SIZE]);
 
 impl Hash {
-    pub fn string(&self) -> String {
-        todo!()
+    // Returns the Hash as the hexadecimal string of the byte-reversed
+    // hash.
+    pub fn string(&self) -> Result<String, ChainHashErrors> {
+        let mut hash = self.0.clone();
+
+        let mut i = 0;
+        while i < HASH_SIZE / 2 {
+            let i_val = hash[i];
+            hash[i] = hash[HASH_SIZE - 1 - i];
+            hash[HASH_SIZE - 1 - i] = i_val;
+            i += 1;
+        }
+
+        let s = hex::encode(hash);
+
+        Ok(s)
     }
 
     pub fn clone_hash(&self) -> Hash {
-        todo!()
+        Self(self.bytes().clone())
     }
 
     pub fn bytes(&self) -> &[u8; HASH_SIZE] {
         &self.0
     }
 
-    pub fn set_bytes(&self, hash: Vec<u8>) -> Result<(), ChainHashErrors> {
-        todo!()
+    /// Sets the bytes which represent the hash.  An error is returned if
+    /// the number of bytes passed in is not HASH_SIZE.
+    pub fn set_bytes(&mut self, hash: Vec<u8>) -> Result<(), ChainHashErrors> {
+        if hash.len() != HASH_SIZE {
+            return Err(ChainHashErrors::HashSize);
+        }
+
+        let boxed_slice = hash.into_boxed_slice();
+
+        let boxed_array: Box<[u8; HASH_SIZE]> = match boxed_slice.try_into() {
+            Ok(ba) => ba,
+            Err(_) => return Err(ChainHashErrors::HashSize),
+        };
+
+        self.0 = *boxed_array;
+        Ok(())
     }
 
+    /// Get length of hash.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Returns true if target is the same as hash.
     pub fn is_equal(&self, hash: &Self) -> bool {
-        todo!()
+        self.0 == hash.0
     }
 
+    /// Returns a new Hash from a byte slice.  An error is returned if
+    /// the number of bytes passed in is not HASH_SIZE.
     pub fn new(hash: Vec<u8>) -> Result<Self, ChainHashErrors> {
-        todo!()
+        let mut h = Self { 0: [0; 32] };
+
+        match h.set_bytes(hash) {
+            Ok(_) => {}
+
+            Err(e) => return Err(e),
+        };
+
+        Ok(h)
     }
 
+    /// Creates a Hash from a hash string.  The string should be the hexadecimal
+    /// string of a byte-reversed hash, but any missing characters result in zero padding at
+    /// at the end of the Hash.
     pub fn new_from_str(value: &str) -> Result<Hash, ChainHashErrors> {
-        todo!()
+        let mut h = Self { 0: [0; HASH_SIZE] };
+        match h.decode(value) {
+            Ok(_) => {}
+
+            Err(e) => return Err(e),
+        };
+
+        Ok(h)
     }
 
-    pub fn decode(&self) -> Result<(), ChainHashErrors> {
-        todo!()
+    /// Decodes the byte-reversed hexadecimal string encoding of a Hash to a
+    /// destination.
+    pub fn decode(&mut self, src: &str) -> Result<(), ChainHashErrors> {
+        // Return error if hash string is too long.
+        if src.len() > super::constants::MAX_HASH_STRING_SIZE {
+            return Err(ChainHashErrors::HashStringSize);
+        }
+
+        // Hex decoder expects the hash to be a multiple of two.  When not, pad
+        // with a leading zero.
+        let src_bytes = if src.len() % 2 == 0 {
+            src.as_bytes().to_vec()
+        } else {
+            let mut v = Vec::with_capacity(1 + src.len()); //src.as_bytes().to_vec();
+            v.push(48); // Add '0'.
+
+            for a in src.as_bytes().iter() {
+                v.push(*a);
+            }
+            v
+        };
+
+        let mut reversed_hash = [0; HASH_SIZE];
+        let src_len = src_bytes.len() / 2;
+
+        match hex::decode_to_slice(src_bytes, &mut reversed_hash[HASH_SIZE - src_len..]) {
+            Ok(_) => {}
+            Err(e) => return Err(ChainHashErrors::HexDecode(e)),
+        };
+
+        let mut i = HASH_SIZE / 2;
+
+        while i < HASH_SIZE {
+            self.0[i] = reversed_hash[HASH_SIZE - 1 - i];
+            self.0[HASH_SIZE - 1 - i] = reversed_hash[i];
+            i += 1;
+        }
+
+        Ok(())
     }
 }
 

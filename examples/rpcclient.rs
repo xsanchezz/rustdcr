@@ -13,6 +13,8 @@ use std::fs::OpenOptions;
 
 use slog::Drain;
 
+use std::fmt::Write;
+
 #[tokio::main]
 async fn main() {
     let log_path = "rpcclient.log";
