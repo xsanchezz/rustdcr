@@ -1,22 +1,22 @@
-#[forbid(missing_docs)]
-use httparse::Status;
+//! Client connection.
+//! Consists of all websocket cofigurations.
 
-use futures::{stream::SplitStream, StreamExt};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-    sync::mpsc,
+use {
+    super::RpcClientError,
+    futures::{stream::SplitStream, StreamExt},
+    httparse::Status,
+    log::warn,
+    tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpStream,
+        sync::mpsc,
+    },
+    tokio_tungstenite::{
+        stream::Stream,
+        tungstenite::{handshake::client::Request, handshake::headers, Message},
+        MaybeTlsStream, WebSocketStream,
+    },
 };
-
-use tokio_tungstenite::{
-    stream::Stream,
-    tungstenite::{handshake::client::Request, handshake::headers, Message},
-    MaybeTlsStream, WebSocketStream,
-};
-
-use super::RpcClientError;
-
-use log::warn;
 
 /// Describes the connection configuration parameters for the client.
 #[derive(Debug)]

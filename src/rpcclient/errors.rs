@@ -1,3 +1,4 @@
+/// RPC client errors
 pub enum RpcClientError {
     /// On json marshalling error.
     Marshaller(serde_json::Error),

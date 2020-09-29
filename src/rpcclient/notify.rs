@@ -1,12 +1,15 @@
-#[deny(missing_docs)]
+//! Notification Handlers
+//! On notification callback functions for websocket.
+
 use {crate::rpcclient::constants, std::collections::HashMap};
 
-/// NotificationHandlers defines callback function pointers to invoke with
-/// notifications.  Since all of the functions are None by default, all
-/// notifications are effectively ignored until their handlers are set to a
-/// concrete callback.
+/// NotificationHandlers defines callback function pointers to invoke with notifications.
+/// Since all of the functions are None by default, all notifications are effectively
+/// ignored until their handlers are set to a concrete callback.
 ///
-/// All callback functions are run async and are safe from blocking client requests.
+/// NOTE: Unless otherwise documented, these handlers must NOT directly call any blocking calls
+/// on the client instance since the input reader goroutine blocks until the callback has completed.
+/// Doing so will result in a deadlock situation.
 #[derive(Default)]
 pub struct NotificationHandlers {
     /// on_client_connected callback function is invoked when the client connects or

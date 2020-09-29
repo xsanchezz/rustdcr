@@ -1,7 +1,15 @@
-pub(super) const BLOCK_CONNECTED_METHOD_NAME: &str = "blockconnected";
-pub(super) const BLOCK_DISCONNECTED_METHOD_NAME: &str = "blockdisconnected";
-pub(super) const NOTIFY_BLOCKS_METHOD_NAME: &str = "notifyblocks";
+//! RPC Types.
+//! Decred JSON RPC notification commands. Also contains standard commands to interact with lower versions such
+//! as bitcoind.
 
+/// Notification from the chain server that a block has been connected.
+pub(super) const BLOCK_CONNECTED_NOTIFICATION_METHOD: &str = "blockconnected";
+/// Notification from the chain server that a block has been disconnected.
+pub(super) const BLOCK_DISCONNECTED_NOTIFICATION_METHOD: &str = "blockdisconnected";
+/// Issues a notify blocks command to RPC server.
+pub(super) const NOTIFY_BLOCKS_METHOD: &str = "notifyblocks";
+
+/// Implements JSON RPC request structure to server.
 #[derive(serde::Serialize)]
 pub(super) struct JsonRequest<'a> {
     pub(super) jsonrpc: &'a str,
@@ -10,6 +18,7 @@ pub(super) struct JsonRequest<'a> {
     pub(super) params: &'a [serde_json::Value],
 }
 
+/// Implements JSON RPC response structure from server.
 #[derive(serde::Deserialize, Default, Debug)]
 #[serde(default)]
 pub(crate) struct JsonResponse {

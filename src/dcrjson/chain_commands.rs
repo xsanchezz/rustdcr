@@ -1,11 +1,12 @@
-#[forbid(missing_docs)]
-use crate::{dcrjson::RpcJsonError, rpcclient::client::Client};
-
-use super::{future_types, rpc_types};
-
-use tokio::sync::mpsc;
-
-use log::{debug, trace, warn};
+//! Chain Commands.
+//! Contains all chain [non-wallet] commands to RPC server. To import this features
+//! ChainCommand trait needs to be imported.
+use {
+    super::rpc_types,
+    crate::{dcrjson::RpcJsonError, rpcclient::client::Client},
+    log::{debug, trace, warn},
+    tokio::sync::mpsc,
+};
 
 // ToDo: Currently, async functions are not allowed in traits.
 // Move all functions to a traits so as to hide methods.
@@ -23,7 +24,8 @@ impl Client {
     pub async fn notify_blocks(&mut self) -> Result<(), RpcJsonError> {
         // Check if notification handler has already been registered;
         let notification_state = self.notification_state.write().await;
-        let notif_id = match notification_state.get(rpc_types::BLOCK_CONNECTED_METHOD_NAME) {
+        let notif_id = match notification_state.get(rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD)
+        {
             Some(notif_id) => Some(*notif_id),
 
             None => None,
@@ -58,7 +60,7 @@ impl Client {
             ));
         }
 
-        let (id, cmd) = self.marshal_command(rpc_types::NOTIFY_BLOCKS_METHOD_NAME, &[]);
+        let (id, cmd) = self.marshal_command(rpc_types::NOTIFY_BLOCKS_METHOD, &[]);
 
         let msg = match cmd {
             Ok(cmd) => cmd,
@@ -70,12 +72,12 @@ impl Client {
 
         let cmd = crate::rpcclient::Command {
             id: id,
-            rpc_message: tokio_tungstenite::tungstenite::Message::Binary(msg.clone()),
+            rpc_message: tokio_tungstenite::tungstenite::Message::Binary(msg),
             user_channel: channel_send,
         };
 
         match self.user_command.send(cmd).await {
-            Ok(_) => {}
+            Ok(_) => trace!("Registered notification notify block command."),
 
             Err(e) => {
                 warn!(
@@ -87,10 +89,22 @@ impl Client {
             }
         }
 
+        // Register notification command to active notifications for reconnection.
         let mut notification_state = self.notification_state.write().await;
-        notification_state.insert(rpc_types::BLOCK_CONNECTED_METHOD_NAME.to_string(), id);
-        notification_state.insert(rpc_types::BLOCK_DISCONNECTED_METHOD_NAME.to_string(), id);
+        notification_state.insert(rpc_types::NOTIFY_BLOCKS_METHOD.to_string(), id);
         drop(notification_state);
+
+        // Register notification method against their receiving channel.
+        let mut registered_notif = self.registered_notification_handler.write().await;
+        registered_notif.insert(
+            rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD.to_string(),
+            id,
+        );
+        registered_notif.insert(
+            rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD.to_string(),
+            id,
+        );
+        drop(registered_notif);
 
         tokio::spawn(async move {
             while let Some(msg) = channel_recv.recv().await {
@@ -104,7 +118,7 @@ impl Client {
 
                         match result.method.as_str() {
                             Some(method) => match method {
-                                rpc_types::BLOCK_CONNECTED_METHOD_NAME => {
+                                rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD => {
                                     match result.params.as_array() {
                                         Some(params) => {
                                             on_block_connected(params, block_connected_callback)
@@ -117,7 +131,7 @@ impl Client {
                                     }
                                 }
 
-                                rpc_types::BLOCK_DISCONNECTED_METHOD_NAME => {}
+                                rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD => {}
 
                                 _ => {
                                     warn!("Server sent an unsupported method type for notify blocks notifications.");
@@ -169,75 +183,77 @@ impl Client {
     }
 }
 
-pub trait Extension {
-    fn add_node(&self) -> future_types::AddNodeFuture {
-        // make some calls
-        todo!()
-    }
+/// Add support for chain commands.
+pub trait ChainCommand {
+    // fn add_node(&self) -> future_types::AddNodeFuture {
+    //     // make some calls
+    //     todo!()
+    // }
 
-    fn get_added_node_info(&self) {}
+    // fn get_added_node_info(&self) {}
 
-    fn create_raw_ssr_tx(&self) {}
+    // fn create_raw_ssr_tx(&self) {}
 
-    fn create_raw_ss_tx(&self) {}
+    // fn create_raw_ss_tx(&self) {}
 
-    fn create_raw_transaction(&self) {}
+    // fn create_raw_transaction(&self) {}
 
-    fn debug_level(&self) {}
+    // fn debug_level(&self) {}
 
-    fn decode_raw_transaction(&self) {}
+    // fn decode_raw_transaction(&self) {}
 
-    fn estimate_smart_fee(&self) {}
+    // fn estimate_smart_fee(&self) {}
 
-    fn estimate_stake_diff(&self) {}
+    // fn estimate_stake_diff(&self) {}
 
-    fn exist_address(&self) {}
+    // fn exist_address(&self) {}
 
-    fn exist_addresses(&self) {}
+    // fn exist_addresses(&self) {}
 
-    fn exists_expired_tickets(&self) {}
+    // fn exists_expired_tickets(&self) {}
 
-    fn exists_live_ticket(&self) {}
+    // fn exists_live_ticket(&self) {}
 
-    fn exists_live_tickets(&self) {}
+    // fn exists_live_tickets(&self) {}
 
-    fn exists_mempool_txs(&self) {}
+    // fn exists_mempool_txs(&self) {}
 
-    fn exists_missed_tickets(&self) {}
+    // fn exists_missed_tickets(&self) {}
 
-    fn get_best_block(&self) {}
+    // fn get_best_block(&self) {}
 
-    fn get_current_net(&self) {}
+    // fn get_current_net(&self) {}
 
-    fn get_headers(&self) {}
+    // fn get_headers(&self) {}
 
-    fn get_stake_difficulty(&self) {}
+    // fn get_stake_difficulty(&self) {}
 
-    fn get_stake_version_info(&self) {}
+    // fn get_stake_version_info(&self) {}
 
-    fn get_stake_versions(&self) {}
+    // fn get_stake_versions(&self) {}
 
-    fn get_ticket_pool_value(&self) {}
+    // fn get_ticket_pool_value(&self) {}
 
-    fn get_vote_info(&self) {}
+    // fn get_vote_info(&self) {}
 
-    fn live_tickets(&self) {}
+    // fn live_tickets(&self) {}
 
-    fn missed_tickets(&self) {}
+    // fn missed_tickets(&self) {}
 
-    fn session(&self) {}
+    // fn session(&self) {}
 
-    fn ticket_fee_info(&self) {}
+    // fn ticket_fee_info(&self) {}
 
-    fn ticket_vwap(&self) {}
+    // fn ticket_vwap(&self) {}
 
-    fn tx_fee_info(&self) {}
+    // fn tx_fee_info(&self) {}
 
-    fn version(&self) {}
+    // fn version(&self) {}
 }
 
-impl Extension for Client {}
+impl ChainCommand for Client {}
 
+/// On block connect notification.
 fn on_block_connected(
     params: &Vec<serde_json::Value>,
     on_block_connected: Option<fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>)>,

@@ -1,17 +1,14 @@
-#[deny(missing_docs)]
-use crate::rpcclient::{connection, constants};
-
-use log::{debug, info, warn};
-
-use async_std::sync::{Arc, Mutex, RwLock};
-
-use futures::stream::{SplitStream, StreamExt};
-use std::collections::{HashMap, VecDeque};
-
-use tokio::{net::TcpStream, sync::mpsc, time};
-use tokio_tungstenite::{
-    tungstenite, tungstenite::Error as WSError, tungstenite::Message, MaybeTlsStream,
-    WebSocketStream,
+use {
+    crate::rpcclient::{connection, constants},
+    async_std::sync::{Arc, Mutex, RwLock},
+    futures::stream::{SplitStream, StreamExt},
+    log::{debug, info, trace, warn},
+    std::collections::{HashMap, VecDeque},
+    tokio::{net::TcpStream, sync::mpsc, time},
+    tokio_tungstenite::{
+        tungstenite, tungstenite::Error as WSError, tungstenite::Message, MaybeTlsStream,
+        WebSocketStream,
+    },
 };
 
 pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
@@ -302,7 +299,11 @@ pub(super) async fn handle_websocket_in(
 /// `rcvd_msg_consumer` consumes message sent by websocket server.
 /// On websocket disconnect websocket is closed and drained messages are returned back to the top of the queue.
 ///
+/// `ws_disconnected_acknowledgement` sends websocket disconnect acknowledgement to client.
+///
 /// `receiver_channel_ID_mapper` maps client command sender to receiver channel using unique ID.
+///
+/// `registered_notification_handler` maps registered notification handlers against their receiving channel.
 ///
 /// Messages received are unmarshalled and ID gotten, ID is mapped to get client command sender channel.
 /// Sender channel is `disconnected` immediately message is sent to client.
@@ -312,7 +313,7 @@ pub(super) async fn handle_received_message(
     mut rcvd_msg_consumer: mpsc::UnboundedReceiver<Message>,
     mut ws_disconnected_acknowledgement: mpsc::Sender<()>,
     receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
-    notification_state: Arc<RwLock<HashMap<String, u64>>>,
+    registered_notification_handler: Arc<RwLock<HashMap<String, u64>>>,
 ) {
     while let Some(message) = rcvd_msg_consumer.recv().await {
         let json_content: JsonID = match &message {
@@ -373,7 +374,7 @@ pub(super) async fn handle_received_message(
         };
 
         let message_clone = message.clone();
-        let notification_state = notification_state.read().await;
+        let registered_notification_handler = registered_notification_handler.read().await;
 
         // Check if message is a notifier or a command.
         let id = if json_content.id.is_null() {
@@ -388,7 +389,7 @@ pub(super) async fn handle_received_message(
                     }
                 };
 
-            let id = match notification_state.get(&notification_method.method) {
+            let id = match registered_notification_handler.get(&notification_method.method) {
                 Some(id) => *id,
 
                 None => {
@@ -415,7 +416,7 @@ pub(super) async fn handle_received_message(
             id
         };
 
-        drop(notification_state);
+        drop(registered_notification_handler);
 
         let mut receiver_channel_id_mapper = receiver_channel_id_mapper.lock().await;
 
@@ -467,7 +468,6 @@ pub(super) async fn ws_write_middleman(
     receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
 ) {
     // Check for updates from client for new commands or websocket writer if to send next command in queue.
-    // ToDo: we should only close websocket when new websocket writer errors.
     loop {
         tokio::select! {
             command = user_command.recv() => {
@@ -556,6 +556,11 @@ pub(super) async fn ws_write_middleman(
 ///
 /// `ws_writer_new` sends new websocket writer to handler.
 ///
+/// `notification_state` contains stored registered notification which are registered on reconnection.
+///
+/// `on_reconnect` a callback function defined by client that is called on websocket connection. If not
+/// callback function is defined by user, a unit callback is called.
+///
 /// On websocket disconnect a new websocket channel is to be created and sent across handler for
 /// a successful reconnection. Reconnection is only called if Auto Connect is enabled.
 pub(super) async fn ws_reconnect_handler(
@@ -564,6 +569,7 @@ pub(super) async fn ws_reconnect_handler(
     mut ws_reconnect_signal: mpsc::Receiver<()>,
     mut websocket_read_new: mpsc::Sender<Websocket>,
     mut ws_writer_new: mpsc::Sender<mpsc::Sender<Message>>,
+    notification_state: Arc<RwLock<HashMap<String, u64>>>,
     on_reconnect: fn(),
 ) {
     while let Some(_) = ws_reconnect_signal.recv().await {
@@ -595,7 +601,7 @@ pub(super) async fn ws_reconnect_handler(
         loop {
             backoff = backoff + crate::rpcclient::constants::CONNECTION_RETRY_INTERVAL_SECS;
 
-            let (ws_rcv, ws_writer) = match config_clone.ws_split_stream().await {
+            let (ws_rcv, mut ws_writer) = match config_clone.ws_split_stream().await {
                 Ok(ws) => ws,
 
                 Err(e) => {
@@ -605,6 +611,29 @@ pub(super) async fn ws_reconnect_handler(
                     continue;
                 }
             };
+
+            // Register registered notifications on reconnection.
+            let notification_state_clone = notification_state.read().await;
+            for iter in notification_state_clone.clone().into_iter() {
+                debug!("Registering {} notification on reconnection.", iter.0);
+
+                let data = format!(
+                    "{{ \"jsonrpc\": \"1.0\", \"method\":\"{}\", \"params\":[], \"id\":{} }}",
+                    iter.0, iter.1
+                );
+
+                match ws_writer.send(Message::Text(data)).await {
+                    Ok(_) => trace!(
+                        "Registering notification on reconnection, notification: {:?}",
+                        iter
+                    ),
+
+                    Err(e) => warn!(
+                        "Error registering notification on reconnection, error: {}",
+                        e
+                    ),
+                }
+            }
 
             match websocket_read_new.send(ws_rcv).await {
                 Ok(_) => {} // Fallthrough to ws_writer_new send.

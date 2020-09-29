@@ -1,3 +1,7 @@
+//! JSON Errors.
+//! Contains all possible JSON error for RPC connection.
+
+/// RPC Json errors.
 pub enum RpcJsonError {
     /// An rpcclient error.
     WebsocketDisabled,

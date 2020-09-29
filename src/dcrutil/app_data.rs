@@ -1,3 +1,5 @@
+//! App Data Directory Utility
+//! Utility to retrieve dcrd/dcrwallet application directory.
 use std::{
     env,
     ops::Add,

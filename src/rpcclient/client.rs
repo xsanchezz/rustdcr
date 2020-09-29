@@ -1,20 +1,21 @@
-#[deny(missing_docs)]
-use super::{connection, constants, infrastructure, notify, RpcClientError};
-use crate::helper::waitgroup;
+//! RPC Client.
+//! Contains all client methods to connect to RPC server.
 
-use log::{info, warn};
-
-use async_std::sync::{Arc, Mutex, RwLock};
-
-use futures::stream::SplitStream;
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::atomic::{AtomicU64, Ordering},
+use {
+    super::{connection, constants, infrastructure, notify, RpcClientError},
+    crate::helper::waitgroup,
+    async_std::sync::{Arc, Mutex, RwLock},
+    futures::stream::SplitStream,
+    log::{info, warn},
+    std::{
+        collections::{HashMap, VecDeque},
+        sync::atomic::{AtomicU64, Ordering},
+    },
+    tokio::{net::TcpStream, sync::mpsc},
+    tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream},
 };
 
-use tokio::{net::TcpStream, sync::mpsc};
-use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
-
+/// TLS or TCP Websocket connection connection.
 pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
 /// Creates a new RPC client based on the provided connection configuration
@@ -37,6 +38,7 @@ pub async fn new(
         notification_handler: Arc::new(notif_handler),
         notification_state: Arc::new(RwLock::new(HashMap::new())),
         receiver_channel_id_mapper: Arc::new(Mutex::new(HashMap::new())),
+        registered_notification_handler: Arc::new(RwLock::new(HashMap::new())),
         requests_queue_container: Arc::new(Mutex::new(VecDeque::new())),
         user_command: ws_rcv_chan_send,
         ws_disconnected_acknowledgement: ws_disconnect_acknowledgement.1,
@@ -105,6 +107,10 @@ pub struct Client {
     /// Contains all notification callback functions. It is protected by a mutex lock.
     /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
     pub(crate) notification_handler: Arc<notify::NotificationHandlers>,
+
+    /// Contains all registered notification handler with their receiving channel ID which receives and
+    /// processes received notification messages from RPC server.
+    pub(crate) registered_notification_handler: Arc<RwLock<HashMap<String, u64>>>,
 
     /// Used to track the current state of successfully registered notifications so the state can be automatically
     // re-established on reconnect.
@@ -183,7 +189,7 @@ impl Client {
             handle_rcvd_msg.1,
             ws_disconnect_acknowledgement,
             self.receiver_channel_id_mapper.clone(),
-            self.notification_state.clone(),
+            self.registered_notification_handler.clone(),
         );
 
         let ws_write_middleman = infrastructure::ws_write_middleman(
@@ -206,6 +212,7 @@ impl Client {
             signal_ws_reconnect.1,
             new_ws_reader.0,
             new_ws_writer.0,
+            self.notification_state.clone(),
             on_client_connected,
         );
 
@@ -355,6 +362,7 @@ impl Client {
         *self.is_ws_disconnected.read().await
     }
 
+    /// Blocks until the client is disconnected and connection closed.
     pub fn wait_for_shutdown(&self) {
         self.waitgroup.wait();
     }

@@ -1,9 +1,13 @@
-use core::future::Future;
+//! Future types.
+//! Contains all asynchronous command structures.
 
-use core::task::{Context, Poll};
+use {
+    core::future::Future,
+    core::pin::Pin,
+    core::task::{Context, Poll},
+};
 
-use core::pin::Pin;
-
+/// Add node future struct.
 pub struct AddNodeFuture {}
 
 impl Future for AddNodeFuture {

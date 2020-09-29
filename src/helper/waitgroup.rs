@@ -1,3 +1,4 @@
+#[deny(missing_docs)]
 use std::{
     fmt,
     sync::{Arc, Condvar, Mutex},
