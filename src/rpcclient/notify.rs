@@ -1,7 +1,7 @@
 //! Notification Handlers
 //! On notification callback functions for websocket.
 
-use {crate::chaincfg::chainhash::constants, std::collections::HashMap};
+use {crate::chaincfg::chainhash::Hash, std::collections::HashMap};
 
 /// NotificationHandlers defines callback function pointers to invoke with notifications.
 /// Since all of the functions are None by default, all notifications are effectively
@@ -32,39 +32,25 @@ pub struct NotificationHandlers {
     pub on_relevant_tx_accepted: Option<fn(transaction: [u8])>,
 
     /// on_reorganization callback function is invoked when the blockchain begins reorganizing.
-    pub on_reorganization: Option<
-        fn(
-            old_hash: &[u8; constants::HASH_SIZE],
-            old_height: i32,
-            new_hash: &[u8; constants::HASH_SIZE],
-            new_height: i32,
-        ),
-    >,
+    pub on_reorganization:
+        Option<fn(old_hash: Hash, old_height: i32, new_hash: Hash, new_height: i32)>,
 
     /// on_winning_tickets callback function is invoked when a block is connected and eligible tickets
     /// to be voted on for this chain are given.
-    pub on_winning_tickets: Option<fn(block_hash: i64, tickets: Vec<&[u8; constants::HASH_SIZE]>)>,
+    pub on_winning_tickets: Option<fn(block_hash: Hash, block_height: i64, tickets: Vec<Hash>)>,
 
     /// on_spent_and_missed_tickets callback function is invoked when a block is connected to the
     /// longest `best` chain and tickets are spent or missed.
-    pub on_spent_and_missed_tickets: Option<
-        fn(
-            hash: &[u8; constants::HASH_SIZE],
-            height: i64,
-            stake_diff: i64,
-            tickets: HashMap<[u8; crate::chaincfg::chainhash::constants::HASH_SIZE], bool>,
-        ),
-    >,
+    pub on_spent_and_missed_tickets:
+        Option<fn(hash: Hash, height: i64, stake_diff: i64, tickets: HashMap<Hash, bool>)>,
 
     /// on_new_tickets callback function is invoked when a block is connected to the longest `best` chain
     /// and tickets have matured and become active.
-    pub on_new_tickets:
-        Option<fn(height: i64, stake_diff: i64, tickets: Vec<&[u8; constants::HASH_SIZE]>)>,
+    pub on_new_tickets: Option<fn(hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>)>,
 
     /// on_stake_difficulty callback function is invoked when a block is connected to the longest `best` chain
     /// and a new difficulty is calculated.
-    pub on_stake_difficulty:
-        Option<fn(hash: &[u8; constants::HASH_SIZE], height: i64, stake_diff: i64)>,
+    pub on_stake_difficulty: Option<fn(hash: Hash, height: i64, stake_diff: i64)>,
 
     /// on_unknown_notification callback function is invoked when an unrecognized notification is received.
     /// This typically means the notification handling code for this package needs to be updated for a new

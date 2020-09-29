@@ -1,6 +1,7 @@
 mod chain_commands;
 mod errors;
 pub use errors::RpcJsonError;
+pub mod chain_notifications;
 pub mod future_types;
 pub mod rpc_types;
 pub use chain_commands::ChainCommand;
