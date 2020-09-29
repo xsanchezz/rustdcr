@@ -60,8 +60,15 @@ async fn main() {
 
         on_block_connected: Some(|block_header: Vec<u8>, transactions: Vec<Vec<u8>>| {
             println!(
-                "\n\n\nBlock header: {:?} \n\nTransactions: {:?}\n\n\n",
+                "\n\n\n\t\t\t\tBlock Connected Notif\nBlock header: {:?} \n\nTransactions: {:?}\n\n\n",
                 block_header, transactions,
+            )
+        }),
+
+        on_block_disconnected: Some(|block_header: Vec<u8>| {
+            println!(
+                "\n\n\t\t\t\tBlock Disconnected Notif\n\nBlock header: {:?}\n\n\n",
+                block_header,
             )
         }),
 

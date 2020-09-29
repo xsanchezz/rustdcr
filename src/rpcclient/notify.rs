@@ -22,7 +22,7 @@ pub struct NotificationHandlers {
 
     /// on_block_disconnected callback function is invoked when a block is disconnected from
     /// the longest `best` chain.
-    pub on_block_disconnected: Option<fn(block_header: [u8])>,
+    pub on_block_disconnected: Option<fn(block_header: Vec<u8>)>,
 
     /// on_work callback function is invoked when a new block template is generated.
     pub on_work: Option<fn(data: [u8], target: [u8], reason: String)>,

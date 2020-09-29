@@ -116,22 +116,24 @@ impl Client {
                     Ok(val) => {
                         let result: rpc_types::JsonResponse = val;
 
+                        let params = match result.params.as_array() {
+                            Some(params) => params,
+
+                            None => {
+                                warn!("Invalid params type for notify blocks, expected an array.");
+                                continue;
+                            }
+                        };
+
                         match result.method.as_str() {
                             Some(method) => match method {
                                 rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD => {
-                                    match result.params.as_array() {
-                                        Some(params) => {
-                                            on_block_connected(params, block_connected_callback)
-                                        }
-
-                                        None => {
-                                            warn!("Invalid params type for notify blocks, expected an array.");
-                                            continue;
-                                        }
-                                    }
+                                    on_block_connected(params, block_connected_callback)
                                 }
 
-                                rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD => {}
+                                rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD => {
+                                    on_block_disconnected(params, block_disconnected_callback)
+                                }
 
                                 _ => {
                                     warn!("Server sent an unsupported method type for notify blocks notifications.");
@@ -253,7 +255,6 @@ pub trait ChainCommand {
 
 impl ChainCommand for Client {}
 
-/// On block connect notification.
 fn on_block_connected(
     params: &Vec<serde_json::Value>,
     on_block_connected: Option<fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>)>,
@@ -262,7 +263,7 @@ fn on_block_connected(
         Some(callback) => callback,
 
         None => {
-            debug!("On block notifier not registered by client.");
+            debug!("On block connected notifier not registered by client.");
             return;
         }
     };
@@ -275,22 +276,29 @@ fn on_block_connected(
     let block_header = match super::parse_hex_parameters(&params[0]) {
         Some(e) => e,
 
-        None => Vec::new(),
+        None => {
+            warn!("Error parsing hex value on block connected notification.");
+            return;
+        }
     };
 
-    if params[1].is_null() {}
+    let hex_transactions = if params[1].is_null() {
+        Vec::new()
+    } else {
+        let hex_transactions: Vec<String> = match serde_json::from_value(params[1].clone()) {
+            Ok(e) => e,
 
-    let hex_transactions: Vec<String> = match serde_json::from_value(params[1].clone()) {
-        Ok(e) => e,
+            Err(e) => {
+                warn!(
+                    "Error marshalling on block transaction hex transaction values, error: {}",
+                    e
+                );
 
-        Err(e) => {
-            warn!(
-                "Error marshalling on block transaction hex transaction values, error: {}",
-                e
-            );
+                return;
+            }
+        };
 
-            Vec::new()
-        }
+        hex_transactions
     };
 
     let mut transactions = Vec::new();
@@ -310,4 +318,34 @@ fn on_block_connected(
     }
 
     callback(block_header, transactions);
+}
+
+fn on_block_disconnected(
+    params: &Vec<serde_json::Value>,
+    on_block_disconnected: Option<fn(block_header: Vec<u8>)>,
+) {
+    let callback = match on_block_disconnected {
+        Some(callback) => callback,
+
+        None => {
+            debug!("On block disconnected notifier not registered by client.");
+            return;
+        }
+    };
+
+    if params.len() != 1 {
+        warn!("Server sent wrong number of parameters on block disconnected notification handler");
+        return;
+    }
+
+    let block_header = match super::parse_hex_parameters(&params[0]) {
+        Some(e) => e,
+
+        None => {
+            warn!("Error parsing hex value on block disconnection notification");
+            return;
+        }
+    };
+
+    callback(block_header);
 }
