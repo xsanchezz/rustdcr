@@ -1,4 +1,5 @@
 use dcrdrs::{
+    chaincfg::chainhash::Hash,
     dcrutil::app_data,
     rpcclient::{client, connection, notify},
 };
@@ -12,8 +13,6 @@ use slog_term;
 use std::fs::OpenOptions;
 
 use slog::Drain;
-
-use std::fmt::Write;
 
 #[tokio::main]
 async fn main() {
@@ -48,7 +47,7 @@ async fn main() {
     let certs = fs::read_to_string(app_dir).unwrap();
 
     let config = connection::ConnConfig {
-        host: "127.0.0.1:9109".to_string(),
+        host: "127.0.0.1:19109".to_string(),
         certificates: certs,
         password: "rpcpassword".to_string(),
         user: "rpcuser".to_string(),
@@ -74,11 +73,29 @@ async fn main() {
             )
         }),
 
+        on_work: Some(|data: Vec<u8>, target: Vec<u8>, reason: String| {
+            println!(
+                "\n\n\t\t\t\tOn Work Notif\n\nData: {:?}\n\n\nTransactions: {:?}\n\n\n\nReason: {:?}\n\n\n",
+                data,target, reason,
+            )
+        }),
+
+        on_new_tickets: Some(
+            |hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>| {
+                println!(
+                "\n\n\t\t\t\tOn Tickets Notif\n\n\nHash: {:?}\n\n\nHeight: {:?}\n\n\nStake Diff: {:?}\n\n\nTickets: {:?}\n\n\n\n",
+                hash.string().unwrap(),height, stake_diff,tickets,
+            )
+            },
+        ),
+
         ..Default::default()
     };
 
     let mut client = client::new(config, notif_handler).await.unwrap();
 
+    client.notify_work().await.unwrap();
+    client.notify_new_tickets().await.unwrap();
     client.notify_blocks().await.unwrap();
 
     client.wait_for_shutdown();

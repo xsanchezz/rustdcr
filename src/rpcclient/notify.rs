@@ -25,11 +25,11 @@ pub struct NotificationHandlers {
     pub on_block_disconnected: Option<fn(block_header: Vec<u8>)>,
 
     /// on_work callback function is invoked when a new block template is generated.
-    pub on_work: Option<fn(data: [u8], target: [u8], reason: String)>,
+    pub on_work: Option<fn(data: Vec<u8>, target: Vec<u8>, reason: String)>,
 
     /// on_relevant_tx_accepted callback function is invoked when an unmined transaction passes
     /// the client's transaction filter.
-    pub on_relevant_tx_accepted: Option<fn(transaction: [u8])>,
+    pub on_relevant_tx_accepted: Option<fn(transaction: Vec<u8>)>,
 
     /// on_reorganization callback function is invoked when the blockchain begins reorganizing.
     pub on_reorganization:
@@ -55,5 +55,5 @@ pub struct NotificationHandlers {
     /// on_unknown_notification callback function is invoked when an unrecognized notification is received.
     /// This typically means the notification handling code for this package needs to be updated for a new
     /// notification type or the caller is using a custom notification this package does not know about.
-    pub on_unknown_notification: Option<fn(method: String, params: [u8])>,
+    pub on_unknown_notification: Option<fn(method: String, params: Vec<u8>)>,
 }

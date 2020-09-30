@@ -9,7 +9,8 @@ use {
 };
 
 // ToDo: Currently, async functions are not allowed in traits.
-// Move all functions to a traits so as to hide methods.
+// Move all functions to a traits so as to hide methods also, we need one helper on_notifier function
+// to reduce code duplication.
 impl Client {
     /// Registers the client to receive notifications when blocks are
     /// connected and disconnected from the main chain.  The notifications are
@@ -74,10 +75,57 @@ impl Client {
 
         tokio::spawn(async move {
             while let Some(msg) = channel_recv.recv().await {
-                on_notify_block(msg, block_connected_callback, block_disconnected_callback);
+                let result = on_notification(msg);
+
+                let result = match result {
+                    Some(result) => result,
+
+                    None => {
+                        warn!("Received a invalid or null response from RPC server.");
+                        continue;
+                    }
+                };
+
+                match result.method.as_str() {
+                    Some(method) => {
+                        match method {
+                            rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD => {
+                                match block_connected_callback {
+                                    Some(e) => on_block_connected(&result.params, e),
+
+                                    None => {
+                                        warn!("On block connected notification callback not registered.");
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD => {
+                                match block_disconnected_callback {
+                                    Some(e) => on_block_disconnected(&result.params, e),
+
+                                    None => {
+                                        warn!("On block disconnected notification callback not registered.");
+                                        continue;
+                                    }
+                                }
+                            }
+
+                            _ => {
+                                warn!("Server sent an unsupported method type for notify blocks notifications.");
+                                continue;
+                            }
+                        }
+                    }
+
+                    None => {
+                        warn!("Received a nil or unsupported method type on notify blocks.");
+                        continue;
+                    }
+                }
             }
 
-            trace!("Closing notify blocks notification handler.")
+            trace!("Closing notify blocks notification handler.");
         });
 
         Ok(())
@@ -100,11 +148,16 @@ impl Client {
         drop(config);
 
         let on_new_ticket_callback = self.notification_handler.on_new_tickets;
-        if on_new_ticket_callback.is_none() {
-            return Err(RpcJsonError::UnregisteredNotification(
-                "Notify new tickets".into(),
-            ));
-        }
+
+        let on_new_ticket_callback = match on_new_ticket_callback {
+            Some(e) => e,
+
+            None => {
+                return Err(RpcJsonError::UnregisteredNotification(
+                    "Notify new tickets".into(),
+                ))
+            }
+        };
 
         self.close_notification_channel_if_exists(rpc_types::NOTIFY_NEW_TICKETS_METHOD)
             .await;
@@ -130,7 +183,110 @@ impl Client {
 
         tokio::spawn(async move {
             while let Some(msg) = channel_recv.recv().await {
-                on_notify_new_tickets(msg, on_new_ticket_callback);
+                let result = on_notification(msg);
+
+                let result = match result {
+                    Some(result) => result,
+
+                    None => {
+                        warn!("Received a invalid or null response from RPC server.");
+                        continue;
+                    }
+                };
+
+                match result.method.as_str() {
+                    Some(method) => match method {
+                        rpc_types::NEW_TICKETS_NOTIFICATION_METHOD => {
+                            on_new_tickets(&result.params, on_new_ticket_callback)
+                        }
+
+                        _ => {
+                            warn!("Server sent an unsupported method type for notify blocks notifications.");
+                            continue;
+                        }
+                    },
+
+                    None => {
+                        warn!("Received a nil or unsupported method type on notify blocks.");
+                        continue;
+                    }
+                }
+            }
+
+            trace!("Closing notify blocks notification handler.")
+        });
+
+        Ok(())
+    }
+
+    pub async fn notify_work(&mut self) -> Result<(), RpcJsonError> {
+        let config = self.configuration.read().await;
+
+        if config.http_post_mode {
+            return Err(RpcJsonError::WebsocketDisabled);
+        }
+        drop(config);
+
+        let on_work_callback = self.notification_handler.on_work;
+
+        let on_work_callback = match on_work_callback {
+            Some(e) => e,
+
+            None => return Err(RpcJsonError::UnregisteredNotification("Notify work".into())),
+        };
+
+        self.close_notification_channel_if_exists(rpc_types::NOTIFIY_NEW_WORK_METHOD)
+            .await;
+
+        let (mut channel_recv, id) = match self
+            .create_command(rpc_types::NOTIFIY_NEW_WORK_METHOD)
+            .await
+        {
+            Ok(e) => e,
+
+            Err(e) => return Err(e),
+        };
+
+        // Save notification method as an active state so as to be re-registered on reconnection.
+        let mut notification_state = self.notification_state.write().await;
+        notification_state.insert(rpc_types::NOTIFIY_NEW_WORK_METHOD.to_string(), id);
+        drop(notification_state);
+
+        // Register notification method against their receiving channel.
+        let mut registered_notif = self.registered_notification_handler.write().await;
+        registered_notif.insert(rpc_types::WORK_NOTIFICATION_METHOD.to_string(), id);
+        drop(registered_notif);
+
+        tokio::spawn(async move {
+            while let Some(msg) = channel_recv.recv().await {
+                let result = on_notification(msg);
+
+                let result = match result {
+                    Some(result) => result,
+
+                    None => {
+                        warn!("Received a invalid or null response from RPC server.");
+                        continue;
+                    }
+                };
+
+                match result.method.as_str() {
+                    Some(method) => match method {
+                        rpc_types::WORK_NOTIFICATION_METHOD => {
+                            on_work(&result.params, on_work_callback)
+                        }
+
+                        _ => {
+                            warn!("Server sent an unsupported method type for notify blocks notifications.");
+                            continue;
+                        }
+                    },
+
+                    None => {
+                        warn!("Received a nil or unsupported method type on notify blocks.");
+                        continue;
+                    }
+                }
             }
 
             trace!("Closing notify blocks notification handler.")
@@ -213,12 +369,8 @@ impl Client {
     }
 }
 
-fn on_notify_block(
-    msg: tokio_tungstenite::tungstenite::Message,
-    block_connected_callback: Option<fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>)>,
-    block_disconnected_callback: Option<fn(block_header: Vec<u8>)>,
-) {
-    trace!("Received block notification.");
+fn on_notification(msg: Message) -> Option<rpc_types::JsonResponse> {
+    trace!("Received winning tickets notification.");
 
     let msg = msg.into_data();
 
@@ -226,63 +378,29 @@ fn on_notify_block(
         Ok(val) => {
             let result: rpc_types::JsonResponse = val;
 
-            let params = match result.params.as_array() {
-                Some(params) => params,
-
-                None => {
-                    warn!("Invalid params type for notify blocks, expected an array.");
-                    return;
-                }
-            };
-
-            match result.method.as_str() {
-                Some(method) => match method {
-                    rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD => {
-                        on_block_connected(params, block_connected_callback)
-                    }
-
-                    rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD => {
-                        on_block_disconnected(params, block_disconnected_callback)
-                    }
-
-                    _ => {
-                        warn!("Server sent an unsupported method type for notify blocks notifications.");
-                        return;
-                    }
-                },
-
-                None => {
-                    warn!("Invalid method type for notify blocks expected a string.");
-                    return;
-                }
+            if !result.params.is_empty() {
+                return Some(result);
             }
+
+            return None;
         }
 
         Err(e) => {
             warn!(
-                "Error marshalling server result on notify blocks, error: {}, {:?}.",
+                "Error marshalling server result on notification, error: {}, {:?}.",
                 e,
                 std::str::from_utf8(&msg),
             );
 
-            return;
+            return None;
         }
-    };
+    }
 }
 
 fn on_block_connected(
     params: &Vec<serde_json::Value>,
-    on_block_connected: Option<fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>)>,
+    on_block_connected: fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>),
 ) {
-    let callback = match on_block_connected {
-        Some(callback) => callback,
-
-        None => {
-            debug!("On block connected notifier not registered by client.");
-            return;
-        }
-    };
-
     if params.len() != 2 {
         warn!("Server sent wrong number of parameters on block connected notification handler");
         return;
@@ -332,22 +450,13 @@ fn on_block_connected(
         };
     }
 
-    callback(block_header, transactions);
+    on_block_connected(block_header, transactions);
 }
 
 fn on_block_disconnected(
     params: &Vec<serde_json::Value>,
-    on_block_disconnected: Option<fn(block_header: Vec<u8>)>,
+    on_block_disconnected: fn(block_header: Vec<u8>),
 ) {
-    let callback = match on_block_disconnected {
-        Some(callback) => callback,
-
-        None => {
-            debug!("On block disconnected notifier not registered by client.");
-            return;
-        }
-    };
-
     if params.len() != 1 {
         warn!("Server sent wrong number of parameters on block disconnected notification handler");
         return;
@@ -362,74 +471,13 @@ fn on_block_disconnected(
         }
     };
 
-    callback(block_header);
-}
-
-fn on_notify_new_tickets(
-    msg: Message,
-    new_tickets_callback: Option<fn(hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>)>,
-) {
-    trace!("Received winning tickets notification.");
-
-    let msg = msg.into_data();
-
-    match serde_json::from_slice(&msg) {
-        Ok(val) => {
-            let result: rpc_types::JsonResponse = val;
-
-            let params = match result.params.as_array() {
-                Some(params) => params,
-
-                None => {
-                    warn!("Invalid params type for notify blocks, expected an array.");
-                    return;
-                }
-            };
-
-            match result.method.as_str() {
-                Some(method) => match method {
-                    rpc_types::NEW_TICKETS_NOTIFICATION_METHOD => {
-                        on_new_tickets(params, new_tickets_callback)
-                    }
-
-                    _ => {
-                        warn!("Server sent an unsupported method type for notify blocks notifications.");
-                        return;
-                    }
-                },
-
-                None => {
-                    warn!("Invalid method type for notify blocks expected a string.");
-                    return;
-                }
-            }
-        }
-
-        Err(e) => {
-            warn!(
-                "Error marshalling server result on winning ticket notification, error: {}, {:?}.",
-                e,
-                std::str::from_utf8(&msg),
-            );
-
-            return;
-        }
-    }
+    on_block_disconnected(block_header);
 }
 
 fn on_new_tickets(
     params: &Vec<serde_json::Value>,
-    new_tickets_callback: Option<fn(hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>)>,
+    new_tickets_callback: fn(hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>),
 ) {
-    let callback = match new_tickets_callback {
-        Some(callback) => callback,
-
-        None => {
-            debug!("On block connected notifier not registered by client.");
-            return;
-        }
-    };
-
     if params.len() != 4 {
         warn!("Server sent wrong number of parameters on new tickets notification handler");
         return;
@@ -507,5 +555,47 @@ fn on_new_tickets(
         }
     }
 
-    callback(sha_hash, block_height, stake_diff, tickets)
+    new_tickets_callback(sha_hash, block_height, stake_diff, tickets)
+}
+
+fn on_work(
+    params: &Vec<serde_json::Value>,
+    on_work_callback: fn(data: Vec<u8>, target: Vec<u8>, reason: String),
+) {
+    if params.len() != 3 {
+        warn!("Server sent wrong number of parameters on new work notification handler");
+        return;
+    }
+
+    let data = match super::parse_hex_parameters(&params[0]) {
+        Some(e) => e,
+
+        None => {
+            warn!("Error getting hex DATA on work notification handler.");
+            return;
+        }
+    };
+
+    let target = match super::parse_hex_parameters(&params[1]) {
+        Some(e) => e,
+
+        None => {
+            warn!("Error getting hex TARGET on work notification handler.");
+            return;
+        }
+    };
+
+    let reason: String = match serde_json::from_value(params[2].clone()) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!(
+                "Error getting on work REASON parmeter on work notification handler, error: {}.",
+                e
+            );
+            return;
+        }
+    };
+
+    on_work_callback(data, target, reason);
 }

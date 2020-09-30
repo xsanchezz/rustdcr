@@ -6,12 +6,17 @@
 pub(super) const BLOCK_CONNECTED_NOTIFICATION_METHOD: &str = "blockconnected";
 /// Notification from the chain server that a block has been disconnected.
 pub(super) const BLOCK_DISCONNECTED_NOTIFICATION_METHOD: &str = "blockdisconnected";
+/// Notifies a client when new tickets have matured.
+pub(super) const NEW_TICKETS_NOTIFICATION_METHOD: &str = "newtickets";
+/// Notification that a new block has been generated.
+pub(super) const WORK_NOTIFICATION_METHOD: &str = "work";
+
 /// Issues a notify blocks command to RPC server.
 pub(super) const NOTIFY_BLOCKS_METHOD: &str = "notifyblocks";
 /// Issues a notify on new tickets command to RPC server.
 pub(super) const NOTIFY_NEW_TICKETS_METHOD: &str = "notifynewtickets";
-/// Notifies a client when new tickets have matured.
-pub(super) const NEW_TICKETS_NOTIFICATION_METHOD: &str = "newtickets";
+/// Registers the client to receive notifications when a new block template has been generated
+pub(super) const NOTIFIY_NEW_WORK_METHOD: &str = "notifywork";
 
 /// Implements JSON RPC request structure to server.
 #[derive(serde::Serialize)]
@@ -30,6 +35,6 @@ pub(crate) struct JsonResponse {
     pub id: serde_json::Value,
     pub method: serde_json::Value,
     pub result: serde_json::Value,
-    pub params: serde_json::Value,
+    pub params: Vec<serde_json::Value>,
     pub error: serde_json::Value,
 }
