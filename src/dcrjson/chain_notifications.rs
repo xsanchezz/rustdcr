@@ -31,13 +31,6 @@ impl Client {
         }
         drop(config);
 
-        self.close_notification_channel_if_exists(rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD)
-            .await;
-        self.close_notification_channel_if_exists(
-            rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD,
-        )
-        .await;
-
         let (block_connected_callback, block_disconnected_callback) = (
             self.notification_handler.on_block_connected,
             self.notification_handler.on_block_disconnected,
@@ -49,84 +42,19 @@ impl Client {
             ));
         }
 
-        let (mut channel_recv, id) =
-            match self.create_command(rpc_types::NOTIFY_BLOCKS_METHOD).await {
-                Ok(e) => e,
+        let id = match self
+            .send_notification_command(rpc_types::NOTIFY_BLOCKS_METHOD)
+            .await
+        {
+            Ok(e) => e,
 
-                Err(e) => return Err(e),
-            };
+            Err(e) => return Err(e),
+        };
 
         // Register notification command to active notifications for reconnection.
         let mut notification_state = self.notification_state.write().await;
         notification_state.insert(rpc_types::NOTIFY_BLOCKS_METHOD.to_string(), id);
         drop(notification_state);
-
-        // Register notification method against their receiving channel.
-        let mut registered_notif = self.registered_notification_handler.write().await;
-        registered_notif.insert(
-            rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD.to_string(),
-            id,
-        );
-        registered_notif.insert(
-            rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD.to_string(),
-            id,
-        );
-        drop(registered_notif);
-
-        tokio::spawn(async move {
-            while let Some(msg) = channel_recv.recv().await {
-                let result = on_notification(msg);
-
-                let result = match result {
-                    Some(result) => result,
-
-                    None => {
-                        warn!("Received a invalid or null response from RPC server.");
-                        continue;
-                    }
-                };
-
-                match result.method.as_str() {
-                    Some(method) => {
-                        match method {
-                            rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD => {
-                                match block_connected_callback {
-                                    Some(e) => on_block_connected(&result.params, e),
-
-                                    None => {
-                                        warn!("On block connected notification callback not registered.");
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD => {
-                                match block_disconnected_callback {
-                                    Some(e) => on_block_disconnected(&result.params, e),
-
-                                    None => {
-                                        warn!("On block disconnected notification callback not registered.");
-                                        continue;
-                                    }
-                                }
-                            }
-
-                            _ => {
-                                warn!("Server sent an unsupported method type for notify blocks notifications.");
-                                continue;
-                            }
-                        }
-                    }
-
-                    None => {
-                        warn!("Received a nil or unsupported method type on notify blocks.");
-                        continue;
-                    }
-                }
-            }
-
-            trace!("Closing notify blocks notification handler.");
-        });
 
         Ok(())
     }
@@ -149,21 +77,14 @@ impl Client {
 
         let on_new_ticket_callback = self.notification_handler.on_new_tickets;
 
-        let on_new_ticket_callback = match on_new_ticket_callback {
-            Some(e) => e,
+        if on_new_ticket_callback.is_none() {
+            return Err(RpcJsonError::UnregisteredNotification(
+                "Notify new tickets".into(),
+            ));
+        }
 
-            None => {
-                return Err(RpcJsonError::UnregisteredNotification(
-                    "Notify new tickets".into(),
-                ))
-            }
-        };
-
-        self.close_notification_channel_if_exists(rpc_types::NOTIFY_NEW_TICKETS_METHOD)
-            .await;
-
-        let (mut channel_recv, id) = match self
-            .create_command(rpc_types::NOTIFY_NEW_TICKETS_METHOD)
+        let id = match self
+            .send_notification_command(rpc_types::NOTIFY_NEW_TICKETS_METHOD)
             .await
         {
             Ok(e) => e,
@@ -175,46 +96,6 @@ impl Client {
         let mut notification_state = self.notification_state.write().await;
         notification_state.insert(rpc_types::NOTIFY_NEW_TICKETS_METHOD.to_string(), id);
         drop(notification_state);
-
-        // Register notification method against their receiving channel.
-        let mut registered_notif = self.registered_notification_handler.write().await;
-        registered_notif.insert(rpc_types::NEW_TICKETS_NOTIFICATION_METHOD.to_string(), id);
-        drop(registered_notif);
-
-        tokio::spawn(async move {
-            while let Some(msg) = channel_recv.recv().await {
-                let result = on_notification(msg);
-
-                let result = match result {
-                    Some(result) => result,
-
-                    None => {
-                        warn!("Received a invalid or null response from RPC server.");
-                        continue;
-                    }
-                };
-
-                match result.method.as_str() {
-                    Some(method) => match method {
-                        rpc_types::NEW_TICKETS_NOTIFICATION_METHOD => {
-                            on_new_tickets(&result.params, on_new_ticket_callback)
-                        }
-
-                        _ => {
-                            warn!("Server sent an unsupported method type for notify blocks notifications.");
-                            continue;
-                        }
-                    },
-
-                    None => {
-                        warn!("Received a nil or unsupported method type on notify blocks.");
-                        continue;
-                    }
-                }
-            }
-
-            trace!("Closing notify blocks notification handler.")
-        });
 
         Ok(())
     }
@@ -229,17 +110,12 @@ impl Client {
 
         let on_work_callback = self.notification_handler.on_work;
 
-        let on_work_callback = match on_work_callback {
-            Some(e) => e,
+        if on_work_callback.is_none() {
+            return Err(RpcJsonError::UnregisteredNotification("Notify work".into()));
+        }
 
-            None => return Err(RpcJsonError::UnregisteredNotification("Notify work".into())),
-        };
-
-        self.close_notification_channel_if_exists(rpc_types::NOTIFIY_NEW_WORK_METHOD)
-            .await;
-
-        let (mut channel_recv, id) = match self
-            .create_command(rpc_types::NOTIFIY_NEW_WORK_METHOD)
+        let id = match self
+            .send_notification_command(rpc_types::NOTIFIY_NEW_WORK_METHOD)
             .await
         {
             Ok(e) => e,
@@ -252,69 +128,11 @@ impl Client {
         notification_state.insert(rpc_types::NOTIFIY_NEW_WORK_METHOD.to_string(), id);
         drop(notification_state);
 
-        // Register notification method against their receiving channel.
-        let mut registered_notif = self.registered_notification_handler.write().await;
-        registered_notif.insert(rpc_types::WORK_NOTIFICATION_METHOD.to_string(), id);
-        drop(registered_notif);
-
-        tokio::spawn(async move {
-            while let Some(msg) = channel_recv.recv().await {
-                let result = on_notification(msg);
-
-                let result = match result {
-                    Some(result) => result,
-
-                    None => {
-                        warn!("Received a invalid or null response from RPC server.");
-                        continue;
-                    }
-                };
-
-                match result.method.as_str() {
-                    Some(method) => match method {
-                        rpc_types::WORK_NOTIFICATION_METHOD => {
-                            on_work(&result.params, on_work_callback)
-                        }
-
-                        _ => {
-                            warn!("Server sent an unsupported method type for notify blocks notifications.");
-                            continue;
-                        }
-                    },
-
-                    None => {
-                        warn!("Received a nil or unsupported method type on notify blocks.");
-                        continue;
-                    }
-                }
-            }
-
-            trace!("Closing notify blocks notification handler.")
-        });
-
         Ok(())
     }
 
-    /// Closes former notification channel if a client decides to register a new notification.
-    async fn close_notification_channel_if_exists(&self, rpc_type: &str) {
-        // Check if notification handler has already been registered;
-        let notification_state = self.notification_state.read().await;
-
-        let notif_channel_id = match notification_state.get(rpc_type) {
-            Some(notif_id) => *notif_id,
-
-            None => return,
-        };
-
-        // Close sender notification handler channel if already registered.
-        let mut mapper = self.receiver_channel_id_mapper.lock().await;
-        mapper.remove(&notif_channel_id);
-    }
-
-    async fn create_command(
-        &mut self,
-        method: &str,
-    ) -> Result<(mpsc::Receiver<Message>, u64), RpcJsonError> {
+    /// Sends notification command to websocket handler.
+    async fn send_notification_command(&mut self, method: &str) -> Result<u64, RpcJsonError> {
         let (id, cmd) = self.marshal_command(method, &[]);
 
         let msg = match cmd {
@@ -326,12 +144,10 @@ impl Client {
             }
         };
 
-        let (channel_send, channel_recv) = mpsc::channel(1);
-
         let cmd = crate::rpcclient::Command {
             id: id,
             rpc_message: Message::Binary(msg),
-            user_channel: channel_send,
+            user_channel: None,
         };
 
         match self.user_command.send(cmd).await {
@@ -347,7 +163,7 @@ impl Client {
             }
         }
 
-        Ok((channel_recv, id))
+        Ok(id)
     }
 
     /// Marshals clients methods and parameters to a valid JSON RPC command also returning command ID for mapping.
@@ -369,9 +185,7 @@ impl Client {
     }
 }
 
-fn on_notification(msg: Message) -> Option<rpc_types::JsonResponse> {
-    trace!("Received winning tickets notification.");
-
+pub(crate) fn on_notification(msg: Message) -> Option<rpc_types::JsonResponse> {
     let msg = msg.into_data();
 
     match serde_json::from_slice(&msg) {
@@ -397,10 +211,12 @@ fn on_notification(msg: Message) -> Option<rpc_types::JsonResponse> {
     }
 }
 
-fn on_block_connected(
+pub(crate) fn on_block_connected(
     params: &Vec<serde_json::Value>,
     on_block_connected: fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>),
 ) {
+    trace!("Received on block connected notification");
+
     if params.len() != 2 {
         warn!("Server sent wrong number of parameters on block connected notification handler");
         return;
@@ -453,10 +269,12 @@ fn on_block_connected(
     on_block_connected(block_header, transactions);
 }
 
-fn on_block_disconnected(
+pub(crate) fn on_block_disconnected(
     params: &Vec<serde_json::Value>,
     on_block_disconnected: fn(block_header: Vec<u8>),
 ) {
+    trace!("Received on block disconnected notification");
+
     if params.len() != 1 {
         warn!("Server sent wrong number of parameters on block disconnected notification handler");
         return;
@@ -474,10 +292,12 @@ fn on_block_disconnected(
     on_block_disconnected(block_header);
 }
 
-fn on_new_tickets(
+pub(crate) fn on_new_tickets(
     params: &Vec<serde_json::Value>,
     new_tickets_callback: fn(hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>),
 ) {
+    trace!("Received on new ticket notification");
+
     if params.len() != 4 {
         warn!("Server sent wrong number of parameters on new tickets notification handler");
         return;
@@ -558,10 +378,12 @@ fn on_new_tickets(
     new_tickets_callback(sha_hash, block_height, stake_diff, tickets)
 }
 
-fn on_work(
+pub(crate) fn on_work(
     params: &Vec<serde_json::Value>,
     on_work_callback: fn(data: Vec<u8>, target: Vec<u8>, reason: String),
 ) {
+    trace!("Received on work notification");
+
     if params.len() != 3 {
         warn!("Server sent wrong number of parameters on new work notification handler");
         return;

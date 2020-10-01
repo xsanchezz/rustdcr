@@ -38,7 +38,6 @@ pub async fn new(
         notification_handler: Arc::new(notif_handler),
         notification_state: Arc::new(RwLock::new(HashMap::new())),
         receiver_channel_id_mapper: Arc::new(Mutex::new(HashMap::new())),
-        registered_notification_handler: Arc::new(RwLock::new(HashMap::new())),
         requests_queue_container: Arc::new(Mutex::new(VecDeque::new())),
         user_command: ws_rcv_chan_send,
         ws_disconnected_acknowledgement: ws_disconnect_acknowledgement.1,
@@ -108,10 +107,6 @@ pub struct Client {
     /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
     pub(crate) notification_handler: Arc<notify::NotificationHandlers>,
 
-    /// Contains all registered notification handler with their receiving channel ID which receives and
-    /// processes received notification messages from RPC server.
-    pub(crate) registered_notification_handler: Arc<RwLock<HashMap<String, u64>>>,
-
     /// Used to track the current state of successfully registered notifications so the state can be automatically
     // re-established on reconnect.
     /// On notification registration, message sent to the RPC server is copied and stored. This is so that on reconnection
@@ -163,6 +158,8 @@ impl Client {
 
         let request_queue_update = mpsc::channel(1);
 
+        let notification_handler = mpsc::channel(1);
+
         let websocket_out = infrastructure::handle_websocket_out(
             split_stream.1,
             new_ws_writer.1,
@@ -187,9 +184,9 @@ impl Client {
 
         let rcvd_msg_handler = infrastructure::handle_received_message(
             handle_rcvd_msg.1,
+            notification_handler.0,
             ws_disconnect_acknowledgement,
             self.receiver_channel_id_mapper.clone(),
-            self.registered_notification_handler.clone(),
         );
 
         let ws_write_middleman = infrastructure::ws_write_middleman(
@@ -216,12 +213,18 @@ impl Client {
             on_client_connected,
         );
 
+        let notification_handler = infrastructure::handle_notification(
+            notification_handler.1,
+            self.notification_handler.clone(),
+        );
+
         // Separately spawn asynchronous thread for each instances.
         tokio::spawn(websocket_out);
         tokio::spawn(websocket_in);
         tokio::spawn(rcvd_msg_handler);
         tokio::spawn(ws_write_middleman);
         tokio::spawn(reconnect_handler);
+        tokio::spawn(notification_handler);
 
         on_client_connected();
 
@@ -311,7 +314,7 @@ impl Client {
         let cmd = super::infrastructure::Command {
             id: id,
             rpc_message: Message::binary(msg),
-            user_channel: channel.0,
+            user_channel: Some(channel.0),
         };
 
         match self.user_command.send(cmd).await {

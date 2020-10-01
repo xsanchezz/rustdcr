@@ -3,28 +3,28 @@
 //! as bitcoind.
 
 /// Notification from the chain server that a block has been connected.
-pub(super) const BLOCK_CONNECTED_NOTIFICATION_METHOD: &str = "blockconnected";
+pub(crate) const BLOCK_CONNECTED_NOTIFICATION_METHOD: &str = "blockconnected";
 /// Notification from the chain server that a block has been disconnected.
-pub(super) const BLOCK_DISCONNECTED_NOTIFICATION_METHOD: &str = "blockdisconnected";
+pub(crate) const BLOCK_DISCONNECTED_NOTIFICATION_METHOD: &str = "blockdisconnected";
 /// Notifies a client when new tickets have matured.
-pub(super) const NEW_TICKETS_NOTIFICATION_METHOD: &str = "newtickets";
+pub(crate) const NEW_TICKETS_NOTIFICATION_METHOD: &str = "newtickets";
 /// Notification that a new block has been generated.
-pub(super) const WORK_NOTIFICATION_METHOD: &str = "work";
+pub(crate) const WORK_NOTIFICATION_METHOD: &str = "work";
 
 /// Issues a notify blocks command to RPC server.
-pub(super) const NOTIFY_BLOCKS_METHOD: &str = "notifyblocks";
+pub(crate) const NOTIFY_BLOCKS_METHOD: &str = "notifyblocks";
 /// Issues a notify on new tickets command to RPC server.
-pub(super) const NOTIFY_NEW_TICKETS_METHOD: &str = "notifynewtickets";
+pub(crate) const NOTIFY_NEW_TICKETS_METHOD: &str = "notifynewtickets";
 /// Registers the client to receive notifications when a new block template has been generated
-pub(super) const NOTIFIY_NEW_WORK_METHOD: &str = "notifywork";
+pub(crate) const NOTIFIY_NEW_WORK_METHOD: &str = "notifywork";
 
 /// Implements JSON RPC request structure to server.
 #[derive(serde::Serialize)]
-pub(super) struct JsonRequest<'a> {
-    pub(super) jsonrpc: &'a str,
-    pub(super) id: u64,
-    pub(super) method: &'a str,
-    pub(super) params: &'a [serde_json::Value],
+pub(crate) struct JsonRequest<'a> {
+    pub jsonrpc: &'a str,
+    pub id: u64,
+    pub method: &'a str,
+    pub params: &'a [serde_json::Value],
 }
 
 /// Implements JSON RPC response structure from server.

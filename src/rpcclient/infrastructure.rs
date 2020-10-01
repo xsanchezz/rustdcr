@@ -1,5 +1,8 @@
 use {
-    crate::rpcclient::{connection, constants},
+    crate::{
+        dcrjson::{chain_notifications, rpc_types},
+        rpcclient::{connection, constants},
+    },
     async_std::sync::{Arc, Mutex, RwLock},
     futures::stream::{SplitStream, StreamExt},
     log::{debug, info, trace, warn},
@@ -13,9 +16,10 @@ use {
 
 pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
+/// Contains RPC Json ID, channel used to send RPC result and message to be sent to server.
 pub(crate) struct Command {
     pub id: u64,
-    pub user_channel: mpsc::Sender<Message>,
+    pub user_channel: Option<mpsc::Sender<Message>>,
     pub rpc_message: Message,
 }
 
@@ -303,7 +307,7 @@ pub(super) async fn handle_websocket_in(
 ///
 /// `receiver_channel_ID_mapper` maps client command sender to receiver channel using unique ID.
 ///
-/// `registered_notification_handler` maps registered notification handlers against their receiving channel.
+/// `notification_handler` sends notification messages to their receiving channel.
 ///
 /// Messages received are unmarshalled and ID gotten, ID is mapped to get client command sender channel.
 /// Sender channel is `disconnected` immediately message is sent to client.
@@ -311,9 +315,9 @@ pub(super) async fn handle_websocket_in(
 /// function.
 pub(super) async fn handle_received_message(
     mut rcvd_msg_consumer: mpsc::UnboundedReceiver<Message>,
+    mut notification_handler: mpsc::Sender<Message>,
     mut ws_disconnected_acknowledgement: mpsc::Sender<()>,
     receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
-    registered_notification_handler: Arc<RwLock<HashMap<String, u64>>>,
 ) {
     while let Some(message) = rcvd_msg_consumer.recv().await {
         let json_content: JsonID = match &message {
@@ -373,32 +377,25 @@ pub(super) async fn handle_received_message(
             }
         };
 
-        let message_clone = message.clone();
-        let registered_notification_handler = registered_notification_handler.read().await;
-
         // Check if message is a notifier or a command.
         let id = if json_content.id.is_null() {
             debug!("Received a notification");
-            let notification_method: JsonNotificationMethod =
-                match serde_json::from_slice(&message_clone.into_data()) {
-                    Ok(e) => e,
+            match notification_handler.send(message).await {
+                Ok(_) => {
+                    trace!("Sent received notification to handler.");
 
-                    Err(e) => {
-                        warn!("Error marshalling notification json, error: {}", e);
-                        continue;
-                    }
-                };
+                    continue;
+                }
 
-            let id = match registered_notification_handler.get(&notification_method.method) {
-                Some(id) => *id,
+                Err(e) => {
+                    warn!(
+                        "Error sending notification message to receiver, error: {}",
+                        e
+                    );
 
-                None => {
-                    warn!("RPC Notification not registered.");
                     continue;
                 }
             };
-
-            id
         } else {
             let id = match json_content.id.as_u64() {
                 Some(id) => id,
@@ -416,8 +413,6 @@ pub(super) async fn handle_received_message(
             id
         };
 
-        drop(registered_notification_handler);
-
         let mut receiver_channel_id_mapper = receiver_channel_id_mapper.lock().await;
 
         match receiver_channel_id_mapper.get_mut(&id) {
@@ -427,14 +422,14 @@ pub(super) async fn handle_received_message(
 
                     Err(e) => {
                         warn!(
-                            "could not client command result back to client, error: {}",
+                            "Could not client command result back to client, error: {}",
                             e
                         );
                     }
                 };
             }
 
-            None => warn!("could not retrieve senders request channel from map"),
+            None => warn!("Could not retrieve senders request channel from map"),
         };
     }
 
@@ -473,12 +468,20 @@ pub(super) async fn ws_write_middleman(
             command = user_command.recv() => {
                 match command {
                     Some(command) => {
-                        let mut mapper = receiver_channel_id_mapper.lock().await;
+                        // Check if a receiving channel was specified, that is if its a notification
+                        // message or not.
+                        match command.user_channel {
+                            Some(e) => {
+                                let mut mapper = receiver_channel_id_mapper.lock().await;
 
-                        if mapper.insert(command.id, command.user_channel).is_some(){
-                            warn!("channel ID already present in map, ID: {}.", command.id);
+                                if mapper.insert(command.id, e).is_some() {
+                                    warn!("channel ID already present in map, ID: {}.", command.id);
 
-                            continue;
+                                    continue;
+                                }
+                            }
+
+                            None => {}
                         }
 
                         // Update queue and update websocket writer about update.
@@ -669,4 +672,89 @@ pub(super) async fn ws_reconnect_handler(
     }
 
     info!("_ws_reconnect_handler exited")
+}
+
+/// `handle_notification` handles all notifications received by websocket.
+///
+/// `channel_recv` is the receiving channel that receives all channel from `handle_received_message`.
+///
+/// `notif` contains all registered notification callbacks.
+///
+/// RPC notifications are sent to handler and are processed accordingly, registered callbacks are called
+/// if available.
+/// Note: This function requires websocket connection.
+pub(super) async fn handle_notification(
+    mut channel_recv: mpsc::Receiver<Message>,
+    notif: Arc<super::notify::NotificationHandlers>,
+) {
+    while let Some(msg) = channel_recv.recv().await {
+        info!("Received notification");
+
+        let result = chain_notifications::on_notification(msg);
+
+        let result = match result {
+            Some(result) => result,
+
+            None => {
+                warn!("Received an invalid or null response from RPC server.");
+                continue;
+            }
+        };
+
+        match result.method.as_str() {
+            Some(method) => match method {
+                rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD => match notif.on_block_connected {
+                    Some(e) => chain_notifications::on_block_connected(&result.params, e),
+
+                    None => {
+                        warn!("On block connected notification callback not registered.");
+                        continue;
+                    }
+                },
+
+                rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD => {
+                    match notif.on_block_disconnected {
+                        Some(e) => chain_notifications::on_block_disconnected(&result.params, e),
+
+                        None => {
+                            warn!("On block disconnected notification callback not registered.");
+                            continue;
+                        }
+                    }
+                }
+
+                rpc_types::WORK_NOTIFICATION_METHOD => match notif.on_work {
+                    Some(e) => chain_notifications::on_work(&result.params, e),
+
+                    None => {
+                        warn!("On work notification callback not registered.");
+                        continue;
+                    }
+                },
+
+                rpc_types::NEW_TICKETS_NOTIFICATION_METHOD => match notif.on_new_tickets {
+                    Some(e) => chain_notifications::on_new_tickets(&result.params, e),
+
+                    None => {
+                        warn!("On new tickets notification callback not registered.");
+                        continue;
+                    }
+                },
+
+                _ => {
+                    warn!(
+                        "Server sent an unsupported method type for notify blocks notifications."
+                    );
+                    continue;
+                }
+            },
+
+            None => {
+                warn!("Received a nil or unsupported method type on notify blocks.");
+                continue;
+            }
+        }
+    }
+
+    trace!("Closing notification handler.");
 }
