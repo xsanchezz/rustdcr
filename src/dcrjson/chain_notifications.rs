@@ -3,8 +3,7 @@
 use {
     super::rpc_types,
     crate::{chaincfg::chainhash::Hash, dcrjson::RpcJsonError, rpcclient::client::Client},
-    log::{debug, trace, warn},
-    tokio::sync::mpsc,
+    log::{trace, warn},
     tokio_tungstenite::tungstenite::Message,
 };
 

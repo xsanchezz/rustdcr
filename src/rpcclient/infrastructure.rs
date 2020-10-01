@@ -30,7 +30,7 @@ pub(super) struct JsonID {
 
 #[derive(serde::Deserialize)]
 pub(super) struct JsonNotificationMethod {
-    pub(super) method: String,
+    pub method: String,
 }
 
 /// Handles sending commands to RPC server through websocket. websocket_out is a `non-blocking` command.
