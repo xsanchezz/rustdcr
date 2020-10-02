@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-#[derive(serde::Deserialize, Default)]
+/// Provides an overview of an agenda in a consensus deployment.
+#[derive(serde::Deserialize, Default, Debug)]
 pub struct AgendaInfo {
     pub status: String,
     #[serde(default)]
@@ -11,6 +12,7 @@ pub struct AgendaInfo {
     pub expire_time: u64,
 }
 
+/// BlockchainInfo models the data returned from the get_blockchain_info command.
 #[derive(serde::Deserialize, Default)]
 pub struct BlockchainInfo {
     pub chain: String,

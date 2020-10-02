@@ -141,7 +141,7 @@ impl Client {
     /// to websocket writer `Sink`.
     ///
     /// All websocket connection is implemented in this function and all child functions are spawned asynchronously.
-    pub(self) async fn ws_handler(
+    async fn ws_handler(
         &mut self,
         user_command: mpsc::Receiver<infrastructure::Command>,
         disconnect_ws_cmd_rcv: mpsc::Receiver<()>,
@@ -331,7 +331,7 @@ impl Client {
     }
 
     /// Marshals clients methods and parameters to a valid JSON RPC command also returning command ID for mapping.
-    pub fn marshal_command(
+    pub(super) fn marshal_command(
         &self,
         method: &str,
         params: &[serde_json::Value],
