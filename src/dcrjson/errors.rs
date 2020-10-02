@@ -11,6 +11,8 @@ pub enum RpcJsonError {
     Marshaller(serde_json::Error),
     /// On websocket channel closure.
     WebsocketClosed,
+    /// Empty response returned by server.
+    EmptyResponse,
 }
 
 impl std::fmt::Display for RpcJsonError {
@@ -22,6 +24,7 @@ impl std::fmt::Display for RpcJsonError {
             RpcJsonError::UnregisteredNotification(ref e) => {
                 write!(f, "Unregistered notification callback, type: {}", e)
             }
+            RpcJsonError::EmptyResponse => write!(f, "Empty response by server"),
             RpcJsonError::Marshaller(ref e) => write!(f, "Marshaller error: {}", e),
             RpcJsonError::WebsocketClosed => write!(f, "Websocket connection closed."),
         }
@@ -40,6 +43,7 @@ impl std::fmt::Debug for RpcJsonError {
                 "RpcJsonError(Unregistered notification callback, type: {})",
                 e
             ),
+            RpcJsonError::EmptyResponse => write!(f, "RpcJsonError(Empty response by server)"),
             RpcJsonError::Marshaller(ref e) => write!(f, "RpcJsonError(Marshaller error: {})", e),
             RpcJsonError::WebsocketClosed => write!(f, "RpcJsonError(Websocket connection closed)"),
         }

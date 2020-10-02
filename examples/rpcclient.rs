@@ -3,6 +3,7 @@ use dcrdrs::{
     dcrutil::app_data,
     rpcclient::{client, connection, notify},
 };
+
 use std::{fs, path::PathBuf};
 
 use slog;
@@ -97,6 +98,22 @@ async fn main() {
     client.notify_work().await.unwrap();
     client.notify_new_tickets().await.unwrap();
     client.notify_blocks().await.unwrap();
+
+    let blk_info = client.get_blockchain_info().await;
+
+    match blk_info {
+        Ok(e) => {
+            let rr = e.await;
+
+            match rr {
+                Ok(e) => println!("jsjsj {} {}", e.blocks, e.verification_progress),
+
+                Err(e) => panic!("{}", e),
+            }
+        }
+
+        Err(e) => println!("{}", e),
+    }
 
     client.wait_for_shutdown();
 }

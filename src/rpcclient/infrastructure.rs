@@ -1,6 +1,7 @@
 use {
+    super::chain_notification,
     crate::{
-        dcrjson::{chain_notifications, rpc_types},
+        dcrjson::rpc_types,
         rpcclient::{connection, constants},
     },
     async_std::sync::{Arc, Mutex, RwLock},
@@ -690,7 +691,7 @@ pub(super) async fn handle_notification(
     while let Some(msg) = channel_recv.recv().await {
         info!("Received notification");
 
-        let result = chain_notifications::on_notification(msg);
+        let result = chain_notification::on_notification(msg);
 
         let result = match result {
             Some(result) => result,
@@ -703,8 +704,8 @@ pub(super) async fn handle_notification(
 
         match result.method.as_str() {
             Some(method) => match method {
-                rpc_types::BLOCK_CONNECTED_NOTIFICATION_METHOD => match notif.on_block_connected {
-                    Some(e) => chain_notifications::on_block_connected(&result.params, e),
+                rpc_types::NOTIFICATION_METHOD_BLOCK_CONNECTED => match notif.on_block_connected {
+                    Some(e) => chain_notification::on_block_connected(&result.params, e),
 
                     None => {
                         warn!("On block connected notification callback not registered.");
@@ -712,9 +713,9 @@ pub(super) async fn handle_notification(
                     }
                 },
 
-                rpc_types::BLOCK_DISCONNECTED_NOTIFICATION_METHOD => {
+                rpc_types::NOTIFICATION_METHOD_BLOCK_DISCONNECTED => {
                     match notif.on_block_disconnected {
-                        Some(e) => chain_notifications::on_block_disconnected(&result.params, e),
+                        Some(e) => chain_notification::on_block_disconnected(&result.params, e),
 
                         None => {
                             warn!("On block disconnected notification callback not registered.");
@@ -723,8 +724,8 @@ pub(super) async fn handle_notification(
                     }
                 }
 
-                rpc_types::WORK_NOTIFICATION_METHOD => match notif.on_work {
-                    Some(e) => chain_notifications::on_work(&result.params, e),
+                rpc_types::NOTIFICATION_METHOD_WORK => match notif.on_work {
+                    Some(e) => chain_notification::on_work(&result.params, e),
 
                     None => {
                         warn!("On work notification callback not registered.");
@@ -732,8 +733,8 @@ pub(super) async fn handle_notification(
                     }
                 },
 
-                rpc_types::NEW_TICKETS_NOTIFICATION_METHOD => match notif.on_new_tickets {
-                    Some(e) => chain_notifications::on_new_tickets(&result.params, e),
+                rpc_types::NOTIFICATION_METHOD_NEW_TICKETS => match notif.on_new_tickets {
+                    Some(e) => chain_notification::on_new_tickets(&result.params, e),
 
                     None => {
                         warn!("On new tickets notification callback not registered.");

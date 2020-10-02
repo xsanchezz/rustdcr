@@ -2,9 +2,13 @@
 pub mod client;
 pub mod connection;
 pub(crate) mod constants;
-mod infrastructure;
-pub(crate) use self::infrastructure::Command;
 mod errors;
+mod infrastructure;
 pub use self::errors::RpcClientError;
+mod chain_command;
+mod chain_notification;
 pub mod notify;
 pub mod tests;
+
+pub(crate) use self::infrastructure::Command;
+pub use chain_command::ChainCommand;

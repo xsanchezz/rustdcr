@@ -3,7 +3,7 @@
 
 use {
     super::{connection, constants, infrastructure, notify, RpcClientError},
-    crate::helper::waitgroup,
+    crate::{dcrjson::RpcJsonError, helper::waitgroup},
     async_std::sync::{Arc, Mutex, RwLock},
     futures::stream::SplitStream,
     log::{info, warn},
@@ -296,7 +296,7 @@ impl Client {
         &mut self,
         method: &str,
         params: &[serde_json::Value],
-    ) -> Result<mpsc::Receiver<Message>, String> {
+    ) -> Result<mpsc::Receiver<Message>, RpcJsonError> {
         let (id, msg) = self.marshal_command(method, params);
 
         let msg = match msg {
@@ -305,7 +305,7 @@ impl Client {
             Err(e) => {
                 warn!("error marshalling custom command, error: {}", e);
 
-                return Err("Error marshalling custom command.".into());
+                return Err(RpcJsonError::Marshaller(e));
             }
         };
 
@@ -323,11 +323,29 @@ impl Client {
             Err(e) => {
                 warn!("error sending custom command to server, error: {}", e);
 
-                return Err("Error sending custom command to RPC.".into());
+                return Err(RpcJsonError::WebsocketClosed);
             }
         };
 
         return Ok(channel.1);
+    }
+
+    /// Marshals clients methods and parameters to a valid JSON RPC command also returning command ID for mapping.
+    pub fn marshal_command(
+        &self,
+        method: &str,
+        params: &[serde_json::Value],
+    ) -> (u64, Result<Vec<u8>, serde_json::Error>) {
+        let id = self.next_id();
+
+        let request = crate::dcrjson::chain_command_result::JsonRequest {
+            jsonrpc: "1.0",
+            id: id,
+            method: method,
+            params: params,
+        };
+
+        return (id, serde_json::to_vec(&request));
     }
 
     /// Disconnects RPC server, deletes command queue and errors any pending request by client.

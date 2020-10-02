@@ -13,3 +13,13 @@ library for Rust based on [Dcrd](https://github.com/decred/dcrd) with true async
         - [ ] Notify On Spent And Missed Tickets
         - [ ] Notify On New Tickets
         - [ ] Notify On Stake Difficulty
+        
+    - [ ] RPC Commands
+        - [x] Get Blockchain Info
+
+- [ ] Chaincfg
+    - [x] Chain hash
+
+- [ ] Dcr Utilities
+    - [x] Get App Data Directory
+    - [ ] DCR Amount

@@ -1,8 +1,11 @@
 //! Chain Notification Commands.
 //! Contains all chain [non-wallet] notification commands to RPC server.
 use {
-    super::rpc_types,
-    crate::{chaincfg::chainhash::Hash, dcrjson::RpcJsonError, rpcclient::client::Client},
+    crate::{
+        chaincfg::chainhash::Hash,
+        dcrjson::{chain_command_result, parse_hex_parameters, rpc_types, RpcJsonError},
+        rpcclient::client::Client,
+    },
     log::{trace, warn},
     tokio_tungstenite::tungstenite::Message,
 };
@@ -42,7 +45,7 @@ impl Client {
         }
 
         let id = match self
-            .send_notification_command(rpc_types::NOTIFY_BLOCKS_METHOD)
+            .send_notification_command(rpc_types::METHOD_NOTIFY_BLOCKS)
             .await
         {
             Ok(e) => e,
@@ -52,7 +55,7 @@ impl Client {
 
         // Register notification command to active notifications for reconnection.
         let mut notification_state = self.notification_state.write().await;
-        notification_state.insert(rpc_types::NOTIFY_BLOCKS_METHOD.to_string(), id);
+        notification_state.insert(rpc_types::METHOD_NOTIFY_BLOCKS.to_string(), id);
         drop(notification_state);
 
         Ok(())
@@ -83,7 +86,7 @@ impl Client {
         }
 
         let id = match self
-            .send_notification_command(rpc_types::NOTIFY_NEW_TICKETS_METHOD)
+            .send_notification_command(rpc_types::METHOD_NOTIFY_NEW_TICKETS)
             .await
         {
             Ok(e) => e,
@@ -93,7 +96,7 @@ impl Client {
 
         // Register notification command to active notifications for reconnection.
         let mut notification_state = self.notification_state.write().await;
-        notification_state.insert(rpc_types::NOTIFY_NEW_TICKETS_METHOD.to_string(), id);
+        notification_state.insert(rpc_types::METHOD_NOTIFY_NEW_TICKETS.to_string(), id);
         drop(notification_state);
 
         Ok(())
@@ -114,7 +117,7 @@ impl Client {
         }
 
         let id = match self
-            .send_notification_command(rpc_types::NOTIFIY_NEW_WORK_METHOD)
+            .send_notification_command(rpc_types::METHOD_NOTIFIY_NEW_WORK)
             .await
         {
             Ok(e) => e,
@@ -124,7 +127,7 @@ impl Client {
 
         // Save notification method as an active state so as to be re-registered on reconnection.
         let mut notification_state = self.notification_state.write().await;
-        notification_state.insert(rpc_types::NOTIFIY_NEW_WORK_METHOD.to_string(), id);
+        notification_state.insert(rpc_types::METHOD_NOTIFIY_NEW_WORK.to_string(), id);
         drop(notification_state);
 
         Ok(())
@@ -164,32 +167,14 @@ impl Client {
 
         Ok(id)
     }
-
-    /// Marshals clients methods and parameters to a valid JSON RPC command also returning command ID for mapping.
-    pub fn marshal_command(
-        &self,
-        method: &str,
-        params: &[serde_json::Value],
-    ) -> (u64, Result<Vec<u8>, serde_json::Error>) {
-        let id = self.next_id();
-
-        let request = rpc_types::JsonRequest {
-            jsonrpc: "1.0",
-            id: id,
-            method: method,
-            params: params,
-        };
-
-        return (id, serde_json::to_vec(&request));
-    }
 }
 
-pub(crate) fn on_notification(msg: Message) -> Option<rpc_types::JsonResponse> {
+pub(super) fn on_notification(msg: Message) -> Option<chain_command_result::JsonResponse> {
     let msg = msg.into_data();
 
     match serde_json::from_slice(&msg) {
         Ok(val) => {
-            let result: rpc_types::JsonResponse = val;
+            let result: chain_command_result::JsonResponse = val;
 
             if !result.params.is_empty() {
                 return Some(result);
@@ -210,7 +195,7 @@ pub(crate) fn on_notification(msg: Message) -> Option<rpc_types::JsonResponse> {
     }
 }
 
-pub(crate) fn on_block_connected(
+pub(super) fn on_block_connected(
     params: &Vec<serde_json::Value>,
     on_block_connected: fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>),
 ) {
@@ -221,7 +206,7 @@ pub(crate) fn on_block_connected(
         return;
     }
 
-    let block_header = match super::parse_hex_parameters(&params[0]) {
+    let block_header = match parse_hex_parameters(&params[0]) {
         Some(e) => e,
 
         None => {
@@ -268,7 +253,7 @@ pub(crate) fn on_block_connected(
     on_block_connected(block_header, transactions);
 }
 
-pub(crate) fn on_block_disconnected(
+pub(super) fn on_block_disconnected(
     params: &Vec<serde_json::Value>,
     on_block_disconnected: fn(block_header: Vec<u8>),
 ) {
@@ -279,7 +264,7 @@ pub(crate) fn on_block_disconnected(
         return;
     }
 
-    let block_header = match super::parse_hex_parameters(&params[0]) {
+    let block_header = match parse_hex_parameters(&params[0]) {
         Some(e) => e,
 
         None => {
@@ -291,7 +276,7 @@ pub(crate) fn on_block_disconnected(
     on_block_disconnected(block_header);
 }
 
-pub(crate) fn on_new_tickets(
+pub(super) fn on_new_tickets(
     params: &Vec<serde_json::Value>,
     new_tickets_callback: fn(hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>),
 ) {
@@ -377,7 +362,7 @@ pub(crate) fn on_new_tickets(
     new_tickets_callback(sha_hash, block_height, stake_diff, tickets)
 }
 
-pub(crate) fn on_work(
+pub(super) fn on_work(
     params: &Vec<serde_json::Value>,
     on_work_callback: fn(data: Vec<u8>, target: Vec<u8>, reason: String),
 ) {
@@ -388,7 +373,7 @@ pub(crate) fn on_work(
         return;
     }
 
-    let data = match super::parse_hex_parameters(&params[0]) {
+    let data = match parse_hex_parameters(&params[0]) {
         Some(e) => e,
 
         None => {
@@ -397,7 +382,7 @@ pub(crate) fn on_work(
         }
     };
 
-    let target = match super::parse_hex_parameters(&params[1]) {
+    let target = match parse_hex_parameters(&params[1]) {
         Some(e) => e,
 
         None => {

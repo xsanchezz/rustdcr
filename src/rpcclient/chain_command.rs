@@ -1,13 +1,8 @@
-//! Chain Commands.
-//! Contains all chain [non-wallet] commands to RPC server. To import this features
-//! ChainCommand trait needs to be imported.
 use {
-    super::rpc_types,
-    crate::{chaincfg::chainhash::Hash, dcrjson::RpcJsonError, rpcclient::client::Client},
-    log::{debug, trace, warn},
-    tokio::sync::mpsc,
-    tokio_tungstenite::tungstenite::Message,
+    super::client::Client,
+    crate::dcrjson::{future_types, rpc_types, RpcJsonError},
 };
+
 /// Add support for chain commands.
 pub trait ChainCommand {
     // fn add_node(&self) -> future_types::AddNodeFuture {
@@ -47,6 +42,8 @@ pub trait ChainCommand {
 
     // fn get_best_block(&self) {}
 
+    fn get_blockchain_info(&self) -> future_types::GetBlockchainInfoFuture;
+
     // fn get_current_net(&self) {}
 
     // fn get_headers(&self) {}
@@ -75,5 +72,20 @@ pub trait ChainCommand {
 
     // fn version(&self) {}
 }
+impl Client {
+    pub async fn get_blockchain_info(
+        &mut self,
+    ) -> Result<future_types::GetBlockchainInfoFuture, RpcJsonError> {
+        let cmd = self
+            .custom_command(rpc_types::METHOD_GET_BLOCKCHAIN_INFO, &[])
+            .await;
 
-impl ChainCommand for Client {}
+        match cmd {
+            Ok(e) => return Ok(future_types::GetBlockchainInfoFuture { message: e }),
+
+            Err(e) => {
+                return Err(e);
+            }
+        }
+    }
+}
