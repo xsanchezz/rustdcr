@@ -1,4 +1,4 @@
-use dcrdrs::{
+use rustdcr::{
     chaincfg::chainhash::Hash,
     dcrutil::app_data,
     rpcclient::{client, connection, notify},
@@ -94,26 +94,32 @@ async fn main() {
     };
 
     let mut client = client::new(config, notif_handler).await.unwrap();
+    //    client.notify_work().await.unwrap();
+    //   client.notify_new_tickets().await.unwrap();
+    //  client.notify_blocks().await.unwrap();
 
-    client.notify_work().await.unwrap();
-    client.notify_new_tickets().await.unwrap();
-    client.notify_blocks().await.unwrap();
+    let blk_info = client.get_blockchain_info().await.unwrap();
 
-    let blk_info = client.get_blockchain_info().await;
+    // Blockchain info is sent to a different async thread.
+    tokio::spawn(async move {
+        let a = blk_info.await.unwrap();
 
-    match blk_info {
-        Ok(e) => {
-            let rr = e.await;
-
-            match rr {
-                Ok(e) => println!("jsjsj {} {}", e.blocks, e.verification_progress),
-
-                Err(e) => panic!("{}", e),
-            }
-        }
-
-        Err(e) => println!("{}", e),
-    }
+        println!(
+            "\n\n\n\nBest Block Hash {} \n\nBlocks {}  \n\nChain {} \n\n Chain Work {} \n\n Deployments {:?} \n\n Difficulty {} \n\n Difficulty Ratio {} \n\n Headers {} \n\n Initial Block Download {} \n\n Max Block Size {} \n\n Sync Height {} \n\n Verification Progress {}",
+            a.best_block_hash,
+            a.blocks,
+            a.chain,
+            a.chain_work,
+            a.deployments,
+            a.difficulty,
+            a.difficulty_ratio,
+            a.headers,
+            a.initial_block_download,
+            a.max_block_size,
+            a.sync_height,
+            a.verification_progress
+        )
+    });
 
     client.wait_for_shutdown();
 }
