@@ -407,7 +407,7 @@ pub(super) async fn handle_received_message(
                         json_content.id.as_str()
                     );
 
-                    return;
+                    continue;
                 }
             };
 
@@ -466,6 +466,8 @@ pub(super) async fn ws_write_middleman(
     // Check for updates from client for new commands or websocket writer if to send next command in queue.
     loop {
         tokio::select! {
+            // Receives commands by clients which are to be sent to server and is saved to message queue,
+            // on closure of channel function is closed.
             command = user_command.recv() => {
                 match command {
                     Some(command) => {
@@ -478,14 +480,14 @@ pub(super) async fn ws_write_middleman(
                                 if mapper.insert(command.id, e).is_some() {
                                     warn!("channel ID already present in map, ID: {}.", command.id);
 
-                                    continue;
+                                    break;
                                 }
                             }
 
                             None => {}
                         }
 
-                        // Update queue and update websocket writer about update.
+                        // Update queue and then update websocket writer about queue modification.
                         requests_queue_container
                             .lock()
                             .await
@@ -495,18 +497,20 @@ pub(super) async fn ws_write_middleman(
                         if let Some(e) = request_queue_updated.send(()).await.err() {
                             warn!("request_queue_updated sending channel closed, error: {}. Closing websocket connection.", e);
 
-                            return;
+                            break;
                         }
                     }
 
                     None => {
                         warn!("client command receiving channel closed. Closing websocket connection.");
 
-                        return;
+                        break;
                     },
                 }
             }
 
+            // Sends client command to websocket writer, commands are stored and queue which are then fetched FIFO to writer.
+            // On message acknowledgement channel closure, function is exited.
             ack = message_sent_acknowledgement.recv() => {
                 match ack {
                     Some(ack) => {
@@ -515,7 +519,8 @@ pub(super) async fn ws_write_middleman(
                                 match requests_queue_container.lock().await.pop_front() {
                                     Some(message) => {
                                         if send_queue_command.send(message).await.is_err() {
-                                            panic!("error sending message queue to websocket writer")
+                                            warn!("Error sending message queue to websocket writer");
+                                            break;
                                         }
                                     }
 
@@ -531,7 +536,7 @@ pub(super) async fn ws_write_middleman(
                                 if request_queue_updated.send(()).await.is_err() {
                                     warn!("request queue updated sending channel closed abruptly");
 
-                                    return;
+                                    break;
                                 }
                             }
                         }

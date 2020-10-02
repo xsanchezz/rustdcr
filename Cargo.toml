@@ -10,7 +10,8 @@ criterion = "0.3"
 
 [features]
 default = ["rpcclient"]
-rpcclient = ["tokio-tungstenite", "tokio-native-tls", "native-tls", "httparse"]
+rpcclient = ["tokio-tungstenite", "tokio-native-tls", "native-tls", "httparse", "dcrutil"]
+dcrutil = ["dirs"]
 
 [[bench]]
 name = "benches"
@@ -22,9 +23,8 @@ name = "rpcclient"
 path = "examples/rpcclient.rs"
 
 [dependencies]
-dirs = "3.0.1"
+# Required Dependencies.
 base64 = "0.12.3"
-
 futures = "*"
 log = "^0.4.11"
 async-std = "1.6.3"
@@ -32,6 +32,10 @@ tokio = { version = "^0.2", features = ["full"] }
 ring = "^0.16"
 hex = "^0.4"
 
+# App Data Dir Package.
+dirs = { version = "^3.0.1", optional = true }
+
+# Rpc Client Dependencies.
 tokio-native-tls = { version = "^0.1.0", optional = true }
 native-tls = { version = "^0.2.4", optional = true }
 httparse = { version = "^1.3", optional = true }
@@ -40,6 +44,8 @@ tungstenite = { version = "*", optional = true }
 
 serde_json = "*"
 serde = { version = "1.0", features = ["derive"] }
+
+# Subject for removal.
 pretty_env_logger = "0.4"
 env_logger = "*"
 
