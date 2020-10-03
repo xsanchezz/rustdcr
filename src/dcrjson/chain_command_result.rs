@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 /// Provides an overview of an agenda in a consensus deployment.
 #[derive(serde::Deserialize, Default, Debug)]
+#[serde(default)]
 pub struct AgendaInfo {
     pub status: String,
-    #[serde(default)]
     pub since: i64,
     #[serde(rename = "starttime")]
     pub start_time: u64,
@@ -14,6 +14,7 @@ pub struct AgendaInfo {
 
 /// BlockchainInfo models the data returned from the get_blockchain_info command.
 #[derive(serde::Deserialize, Default)]
+#[serde(default)]
 pub struct BlockchainInfo {
     pub chain: String,
     pub blocks: i64,
@@ -46,7 +47,7 @@ pub(crate) struct JsonRequest<'a> {
 }
 
 /// Implements JSON RPC response structure from server.
-#[derive(serde::Deserialize, Default, Debug)]
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug)]
 #[serde(default)]
 pub(crate) struct JsonResponse {
     pub jsonrpc: String,

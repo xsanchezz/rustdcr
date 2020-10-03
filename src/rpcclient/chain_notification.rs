@@ -1,9 +1,13 @@
 //! Chain Notification Commands.
 //! Contains all chain [non-wallet] notification commands to RPC server.
 use {
+    super::RpcClientError,
     crate::{
         chaincfg::chainhash::Hash,
-        dcrjson::{chain_command_result, parse_hex_parameters, rpc_types, RpcJsonError},
+        dcrjson::{
+            chain_command_result, future_types::NotificationsFuture, parse_hex_parameters,
+            rpc_types,
+        },
         rpcclient::client::Client,
     },
     log::{trace, warn},
@@ -24,14 +28,18 @@ impl Client {
     /// OnBlockConnected or OnBlockDisconnected.
     ///
     /// NOTE: This is a non-wallet extension and requires a websocket connection.
-    pub async fn notify_blocks(&mut self) -> Result<(), RpcJsonError> {
+    pub async fn notify_blocks(&mut self) -> Result<NotificationsFuture, RpcClientError> {
         // Check if user is in HTTP post mode.
         let config = self.configuration.read().await;
 
         if config.http_post_mode {
-            return Err(RpcJsonError::WebsocketDisabled);
+            return Err(RpcClientError::ClientNotConnected);
         }
         drop(config);
+
+        if self.is_disconnected().await {
+            return Err(RpcClientError::RpcDisconnected);
+        }
 
         let (block_connected_callback, block_disconnected_callback) = (
             self.notification_handler.on_block_connected,
@@ -39,26 +47,16 @@ impl Client {
         );
 
         if block_connected_callback.is_none() && block_disconnected_callback.is_none() {
-            return Err(RpcJsonError::UnregisteredNotification(
+            return Err(RpcClientError::UnregisteredNotification(
                 "Notify blocks".into(),
             ));
         }
 
-        let id = match self
-            .send_notification_command(rpc_types::METHOD_NOTIFY_BLOCKS)
-            .await
-        {
-            Ok(e) => e,
+        let notif_future = self
+            .create_notification(rpc_types::METHOD_NOTIFY_BLOCKS.to_string())
+            .await;
 
-            Err(e) => return Err(e),
-        };
-
-        // Register notification command to active notifications for reconnection.
-        let mut notification_state = self.notification_state.write().await;
-        notification_state.insert(rpc_types::METHOD_NOTIFY_BLOCKS.to_string(), id);
-        drop(notification_state);
-
-        Ok(())
+        notif_future
     }
 
     /// NotifyNewTickets registers the client to receive notifications when blocks are connected to the main
@@ -69,26 +67,65 @@ impl Client {
     /// The notifications delivered as a result of this call will be via OnNewTickets.
     ///
     /// NOTE: This is a chain extension and requires a websocket connection.
-    pub async fn notify_new_tickets(&mut self) -> Result<(), RpcJsonError> {
+    pub async fn notify_new_tickets(&mut self) -> Result<NotificationsFuture, RpcClientError> {
         let config = self.configuration.read().await;
 
         if config.http_post_mode {
-            return Err(RpcJsonError::WebsocketDisabled);
+            return Err(RpcClientError::ClientNotConnected);
         }
         drop(config);
+
+        if self.is_disconnected().await {
+            return Err(RpcClientError::RpcDisconnected);
+        }
 
         let on_new_ticket_callback = self.notification_handler.on_new_tickets;
 
         if on_new_ticket_callback.is_none() {
-            return Err(RpcJsonError::UnregisteredNotification(
+            return Err(RpcClientError::UnregisteredNotification(
                 "Notify new tickets".into(),
             ));
         }
 
-        let id = match self
-            .send_notification_command(rpc_types::METHOD_NOTIFY_NEW_TICKETS)
-            .await
-        {
+        let notif_future = self
+            .create_notification(rpc_types::METHOD_NOTIFY_NEW_TICKETS.to_string())
+            .await;
+
+        notif_future
+    }
+
+    pub async fn notify_work(&mut self) -> Result<NotificationsFuture, RpcClientError> {
+        let config = self.configuration.read().await;
+
+        if config.http_post_mode {
+            return Err(RpcClientError::ClientNotConnected);
+        }
+        drop(config);
+
+        if self.is_disconnected().await {
+            return Err(RpcClientError::RpcDisconnected);
+        }
+
+        let on_work_callback = self.notification_handler.on_work;
+
+        if on_work_callback.is_none() {
+            return Err(RpcClientError::UnregisteredNotification(
+                "Notify work".into(),
+            ));
+        }
+
+        let notif_future = self
+            .create_notification(rpc_types::METHOD_NOTIFIY_NEW_WORK.to_string())
+            .await;
+
+        notif_future
+    }
+
+    async fn create_notification(
+        &mut self,
+        method: String,
+    ) -> Result<NotificationsFuture, RpcClientError> {
+        let (id, result_receiver) = match self.custom_command(&method, &[]).await {
             Ok(e) => e,
 
             Err(e) => return Err(e),
@@ -96,76 +133,11 @@ impl Client {
 
         // Register notification command to active notifications for reconnection.
         let mut notification_state = self.notification_state.write().await;
-        notification_state.insert(rpc_types::METHOD_NOTIFY_NEW_TICKETS.to_string(), id);
-        drop(notification_state);
+        notification_state.insert(method, id);
 
-        Ok(())
-    }
-
-    pub async fn notify_work(&mut self) -> Result<(), RpcJsonError> {
-        let config = self.configuration.read().await;
-
-        if config.http_post_mode {
-            return Err(RpcJsonError::WebsocketDisabled);
-        }
-        drop(config);
-
-        let on_work_callback = self.notification_handler.on_work;
-
-        if on_work_callback.is_none() {
-            return Err(RpcJsonError::UnregisteredNotification("Notify work".into()));
-        }
-
-        let id = match self
-            .send_notification_command(rpc_types::METHOD_NOTIFIY_NEW_WORK)
-            .await
-        {
-            Ok(e) => e,
-
-            Err(e) => return Err(e),
-        };
-
-        // Save notification method as an active state so as to be re-registered on reconnection.
-        let mut notification_state = self.notification_state.write().await;
-        notification_state.insert(rpc_types::METHOD_NOTIFIY_NEW_WORK.to_string(), id);
-        drop(notification_state);
-
-        Ok(())
-    }
-
-    /// Sends notification command to websocket handler.
-    async fn send_notification_command(&mut self, method: &str) -> Result<u64, RpcJsonError> {
-        let (id, cmd) = self.marshal_command(method, &[]);
-
-        let msg = match cmd {
-            Ok(cmd) => cmd,
-
-            Err(e) => {
-                warn!("Error marshalling JSON command, error: {}", e);
-                return Err(RpcJsonError::Marshaller(e));
-            }
-        };
-
-        let cmd = crate::rpcclient::Command {
-            id: id,
-            rpc_message: Message::Binary(msg),
-            user_channel: None,
-        };
-
-        match self.user_command.send(cmd).await {
-            Ok(_) => trace!("Registered notification notify block command."),
-
-            Err(e) => {
-                warn!(
-                    "Error sending notify blocks command to RPC server, error: {}.",
-                    e
-                );
-
-                return Err(RpcJsonError::WebsocketClosed);
-            }
-        }
-
-        Ok(id)
+        Ok(NotificationsFuture {
+            message: result_receiver,
+        })
     }
 }
 

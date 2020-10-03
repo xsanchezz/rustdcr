@@ -213,13 +213,12 @@ impl ConnConfig {
                 tls_connector_builder
                     .add_root_certificate(certificate)
                     .min_protocol_version(native_tls::Protocol::Tlsv12.into())
-                    .danger_accept_invalid_hostnames(true)
                     .danger_accept_invalid_certs(true);
             }
 
             Err(e) => {
                 warn!("Error parsing tls certificate, error: {}", e);
-                return Err(RpcClientError::TlsCertificate(e));
+                return Err(RpcClientError::WsTlsCertificate(e));
             }
         }
 
@@ -288,7 +287,7 @@ impl ConnConfig {
                     "Error writing request header to proxied stream, error: {}",
                     e
                 );
-                return Err(RpcClientError::ProxyAuthenticationRequest(e));
+                return Err(RpcClientError::ProxyAuthentication(e));
             }
         };
 
@@ -303,7 +302,7 @@ impl ConnConfig {
                         "Error reading proxied RPC server received bytes, error: {}.",
                         e
                     );
-                    return Err(RpcClientError::ProxyAuthenticationResponse(e));
+                    return Err(RpcClientError::ProxyAuthentication(e));
                 }
             };
 

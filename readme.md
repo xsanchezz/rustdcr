@@ -17,7 +17,7 @@ library for Rust based on [Dcrd](https://github.com/decred/dcrd) with true async
     - [ ] RPC Commands
         |        Command      |  Websocket supported |   HTTP Supported   |
         |:-------------------:|:--------------------:|:------------------:|
-        | Get Blockchain Info |  :white_check_mark:  |  |
+        | Get Blockchain Info |  :white_check_mark:  | :white_check_mark: |
 
 - [ ] Chaincfg
     - [x] Chain hash

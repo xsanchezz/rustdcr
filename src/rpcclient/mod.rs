@@ -9,6 +9,3 @@ mod chain_command;
 mod chain_notification;
 pub mod notify;
 pub mod tests;
-
-pub(crate) use self::infrastructure::Command;
-pub use chain_command::ChainCommand;

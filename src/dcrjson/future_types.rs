@@ -6,39 +6,26 @@ use {
     core::future::Future,
     core::pin::Pin,
     core::task::{Context, Poll},
-    log::{info, trace, warn},
+    log::{trace, warn},
     tokio::sync::mpsc,
-    tokio_tungstenite::tungstenite::Message,
 };
 
-/// Add node future struct.
-pub struct AddNodeFuture {}
-
-impl Future for AddNodeFuture {
-    type Output = Result<(), String>;
-
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        todo!()
-    }
+/// Returns on-notification response from server.
+pub struct NotificationsFuture {
+    pub(crate) message: mpsc::Receiver<Vec<u8>>,
 }
 
-pub struct GetBlockchainInfoFuture {
-    pub(crate) message: mpsc::Receiver<Message>,
-}
-
-impl Future for GetBlockchainInfoFuture {
-    type Output = Result<chain_command_result::BlockchainInfo, super::RpcJsonError>;
+impl Future for NotificationsFuture {
+    type Output = Result<(), super::RpcServerError>;
 
     fn poll(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<chain_command_result::BlockchainInfo, super::RpcJsonError>> {
+    ) -> Poll<Result<(), super::RpcServerError>> {
         match self.message.poll_recv(cx) {
             Poll::Ready(message) => match message {
                 Some(msg) => {
                     trace!("Server sent a Get Blockchain Info result.");
-
-                    let msg = msg.into_data();
 
                     let result: chain_command_result::JsonResponse =
                         match serde_json::from_slice(&msg) {
@@ -46,23 +33,27 @@ impl Future for GetBlockchainInfoFuture {
 
                             Err(e) => {
                                 warn!("Error marshalling Get Blockchain Info result.");
-                                return Poll::Ready(Err(super::RpcJsonError::Marshaller(e)));
+                                return Poll::Ready(Err(super::RpcServerError::Marshaller(e)));
                             }
                         };
 
-                    let val = match serde_json::from_value(result.result) {
+                    if result.error.is_null() {
+                        return Poll::Ready(Ok(()));
+                    }
+
+                    let error_value: String = match serde_json::from_value(result.error) {
                         Ok(val) => val,
 
                         Err(e) => {
-                            warn!("Error marshalling Get Blockchain Info result.");
-                            return Poll::Ready(Err(super::RpcJsonError::Marshaller(e)));
+                            warn!("Error marshalling error value.");
+                            return Poll::Ready(Err(super::RpcServerError::Marshaller(e)));
                         }
                     };
 
-                    return Poll::Ready(Ok(val));
+                    return Poll::Ready(Err(super::RpcServerError::ServerError(error_value)));
                 }
 
-                None => return Poll::Ready(Err(super::RpcJsonError::EmptyResponse)),
+                None => return Poll::Ready(Err(super::RpcServerError::EmptyResponse)),
             },
 
             Poll::Pending => {
@@ -72,70 +63,57 @@ impl Future for GetBlockchainInfoFuture {
     }
 }
 
-// pub struct NotifyBlocksFuture {
-//     pub(crate) message: mpsc::Receiver<Message>,
-//     pub(crate) on_block_connected: Option<fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>)>,
-//     pub(crate) on_block_disconnected: Option<fn(block_header: [u8])>,
-// }
+/// Returns GetBlockchainInfo response from server. This is an asynchronous type.
+pub struct GetBlockchainInfoFuture {
+    pub(crate) message: mpsc::Receiver<Vec<u8>>,
+}
 
-// impl Future for NotifyBlocksFuture {
-//     type Output = Result<(), String>;
+impl Future for GetBlockchainInfoFuture {
+    type Output = Result<chain_command_result::BlockchainInfo, super::RpcServerError>;
 
-//     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-//         // match self.message.poll_recv(cx) {
-//         //     Some(t) => {}
+    fn poll(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<chain_command_result::BlockchainInfo, super::RpcServerError>> {
+        match self.message.poll_recv(cx) {
+            Poll::Ready(message) => match message {
+                Some(msg) => {
+                    trace!("Server sent a Get Blockchain Info result.");
 
-//         //     None => {}
-//         // };
+                    let result: chain_command_result::JsonResponse =
+                        match serde_json::from_slice(&msg) {
+                            Ok(val) => val,
 
-//         match self.message.poll_recv(cx) {
-//             Poll::Ready(msg) => match msg {
-//                 Some(msg) => {
-//                     match serde_json::from_slice(&msg.into_data()) {
-//                         Ok(val) => {
-//                             let result: rpc_types::JsonResponse = val;
+                            Err(e) => {
+                                warn!("Error marshalling Get Blockchain Info response.");
+                                return Poll::Ready(Err(super::RpcServerError::Marshaller(e)));
+                            }
+                        };
 
-//                             return Poll::Ready(Ok(()));
-//                         }
+                    if !result.error.is_null() {
+                        return Poll::Ready(Err(super::RpcServerError::ServerError(
+                            result.error.to_string(),
+                        )));
+                    }
 
-//                         Err(e) => {
-//                             warn!(
-//                                 "Error marshalling server result on notify blocks, error: {}.",
-//                                 e
-//                             );
+                    let val = match serde_json::from_value(result.result) {
+                        Ok(val) => val,
 
-//                             return Poll::Ready(Err(
-//                                 "Error marshalling server result on notify blocks".into(),
-//                             ));
-//                         }
-//                     };
-//                 }
+                        Err(e) => {
+                            warn!("Error marshalling Get Blockchain Info result.");
+                            return Poll::Ready(Err(super::RpcServerError::Marshaller(e)));
+                        }
+                    };
 
-//                 None => {
-//                     warn!("Server returned back an empty message on notify blocks.");
+                    return Poll::Ready(Ok(val));
+                }
 
-//                     return Poll::Ready(Err("Server returned an empty result".into()));
-//                 }
-//             },
+                None => return Poll::Ready(Err(super::RpcServerError::EmptyResponse)),
+            },
 
-//             Poll::Pending => Poll::Pending,
-//         }
-
-//         // match self.message.try_recv() {
-//         //     Ok(_) => {}
-
-//         //     Err(e) => match e {
-//         //         mpsc::error::TryRecvError::Closed => {
-//         //             warn!("Notify block receiving channel closed abruptly.");
-
-//         //             return Poll::Ready(Err("slsls".into()));
-//         //         }
-
-//         //         mpsc::error::TryRecvError::Empty => {
-//         //             self.message.poll_recv(cx);
-//         //             return Poll::Pending;
-//         //         } //                return self.message.poll_recv(cx);
-//         //     },
-//         // }
-//     }
-// }
+            Poll::Pending => {
+                return Poll::Pending;
+            }
+        };
+    }
+}

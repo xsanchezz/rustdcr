@@ -1,6 +1,6 @@
 pub mod chain_command_result;
 mod errors;
-pub use errors::RpcJsonError;
+pub use errors::RpcServerError;
 pub mod future_types;
 pub(crate) mod rpc_types;
 

@@ -1,7 +1,7 @@
 use {
     super::chain_notification,
     crate::{
-        dcrjson::rpc_types,
+        dcrjson::{chain_command_result::JsonResponse, rpc_types},
         rpcclient::{connection, constants},
     },
     async_std::sync::{Arc, Mutex, RwLock},
@@ -19,9 +19,12 @@ pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
 /// Contains RPC Json ID, channel used to send RPC result and message to be sent to server.
 pub(crate) struct Command {
+    /// ID to track server to client commands.
     pub id: u64,
-    pub user_channel: Option<mpsc::Sender<Message>>,
-    pub rpc_message: Message,
+    /// Channel to send received message from server.
+    pub user_channel: mpsc::Sender<Vec<u8>>,
+    /// Message received from server.
+    pub rpc_message: Vec<u8>,
 }
 
 #[derive(serde::Deserialize)]
@@ -58,12 +61,12 @@ pub(super) struct JsonNotificationMethod {
 pub(super) async fn handle_websocket_out(
     mut ws_sender: mpsc::Sender<Message>,
     mut ws_sender_new: mpsc::Receiver<mpsc::Sender<Message>>,
-    mut queue_command: mpsc::Receiver<Message>,
-    mut message_sent_acknowledgement: mpsc::Sender<Result<(), Message>>,
+    mut queue_command: mpsc::Receiver<Vec<u8>>,
+    mut message_sent_acknowledgement: mpsc::Sender<Result<(), Vec<u8>>>,
     mut request_queue_updated: mpsc::Receiver<()>,
     mut disconnect_cmd_rcv: mpsc::Receiver<()>,
 ) {
-    let send_ack = |mut msg_ack: mpsc::Sender<Result<(), Message>>| async move {
+    let send_ack = |mut msg_ack: mpsc::Sender<Result<(), Vec<u8>>>| async move {
         match msg_ack.send(Ok(())).await {
             Ok(_) => {}
 
@@ -101,8 +104,6 @@ pub(super) async fn handle_websocket_out(
                                 );
                             }
                         };
-
-                      //  return;
                     }
 
                     None => {
@@ -163,14 +164,15 @@ pub(super) async fn handle_websocket_out(
 
             msg = queue_command.recv() => {
                 match msg {
-                    Some(msg) => match ws_sender.send(msg).await {
+                    Some(msg) => match ws_sender.send(Message::Binary(msg)).await {
                         // Send message_sent acknowledgement back to server so as to send next queue in VecQueue.
                         Ok(_) => match message_sent_acknowledgement.send(Ok(())).await {
                             Ok(_) => continue,
 
                             Err(e) => {
                                 warn!(
-                                    "error sending message sent acknowledgement success to websocket, error: {}. Closing websocket connection.",
+                                    "error sending message sent acknowledgement success to websocket, error: {}.
+                                     Closing websocket connection.",
                                     e
                                 );
 
@@ -180,7 +182,7 @@ pub(super) async fn handle_websocket_out(
 
                         // On channel error indicates either a protocol error and auto reconnect disabled or websocket closing normally
                         // command is sent back to queue.
-                        Err(e) => match message_sent_acknowledgement.send(Err(e.0)).await {
+                        Err(e) => match message_sent_acknowledgement.send(Err(e.0.into_data())).await {
                             Ok(_) => continue,
 
                             Err(e) => {
@@ -318,7 +320,7 @@ pub(super) async fn handle_received_message(
     mut rcvd_msg_consumer: mpsc::UnboundedReceiver<Message>,
     mut notification_handler: mpsc::Sender<Message>,
     mut ws_disconnected_acknowledgement: mpsc::Sender<()>,
-    receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
+    receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Vec<u8>>>>>,
 ) {
     while let Some(message) = rcvd_msg_consumer.recv().await {
         let json_content: JsonID = match &message {
@@ -418,13 +420,13 @@ pub(super) async fn handle_received_message(
 
         match receiver_channel_id_mapper.get_mut(&id) {
             Some(val) => {
-                match val.send(message).await {
+                match val.send(message.into_data()).await {
                     Ok(_) => {}
 
                     Err(e) => {
                         warn!(
-                            "Could not client command result back to client, error: {}",
-                            e
+                            "Client RPC result receiver channel closed abruptly, error: {}. ID is {}",
+                            e, id,
                         );
                     }
                 };
@@ -458,10 +460,10 @@ pub(super) async fn handle_received_message(
 pub(super) async fn ws_write_middleman(
     mut user_command: mpsc::Receiver<Command>,
     mut request_queue_updated: mpsc::Sender<()>,
-    mut message_sent_acknowledgement: mpsc::Receiver<Result<(), Message>>,
-    mut send_queue_command: mpsc::Sender<Message>,
-    requests_queue_container: Arc<Mutex<VecDeque<Message>>>,
-    receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Message>>>>,
+    mut message_sent_acknowledgement: mpsc::Receiver<Result<(), Vec<u8>>>,
+    mut send_queue_command: mpsc::Sender<Vec<u8>>,
+    requests_queue_container: Arc<Mutex<VecDeque<Vec<u8>>>>,
+    receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Vec<u8>>>>>,
 ) {
     // Check for updates from client for new commands or websocket writer if to send next command in queue.
     loop {
@@ -473,19 +475,14 @@ pub(super) async fn ws_write_middleman(
                     Some(command) => {
                         // Check if a receiving channel was specified, that is if its a notification
                         // message or not.
-                        match command.user_channel {
-                            Some(e) => {
-                                let mut mapper = receiver_channel_id_mapper.lock().await;
+                        let mut mapper = receiver_channel_id_mapper.lock().await;
 
-                                if mapper.insert(command.id, e).is_some() {
-                                    warn!("channel ID already present in map, ID: {}.", command.id);
+                        if mapper.insert(command.id, command.user_channel).is_some() {
+                            warn!("channel ID already present in map, ID: {}.", command.id);
 
-                                    break;
-                                }
-                            }
-
-                            None => {}
+                            break;
                         }
+                        drop(mapper);
 
                         // Update queue and then update websocket writer about queue modification.
                         requests_queue_container
@@ -534,7 +531,7 @@ pub(super) async fn ws_write_middleman(
 
                                 // Send back queue updated acknowledgement back to websocket writer.
                                 if request_queue_updated.send(()).await.is_err() {
-                                    warn!("request queue updated sending channel closed abruptly");
+                                    warn!("Request queue updated sending channel closed abruptly");
 
                                     break;
                                 }
@@ -763,4 +760,126 @@ pub(super) async fn handle_notification(
     }
 
     trace!("Closing notification handler.");
+}
+
+/// Handles all RPC command if websocket mode is disabled.
+/// `client` sends Post requests to senders and receives response.
+/// `http_user_command` receives RPC commands and sends RPC Post message to server, received messages are then
+/// sent to the user channel.
+pub(super) async fn handle_post_methods(
+    client: reqwest::Client,
+    config: Arc<RwLock<super::connection::ConnConfig>>,
+    mut http_user_command: mpsc::Receiver<Command>,
+) {
+    let on_error = |err: String, response: JsonResponse, mut channel: mpsc::Sender<Vec<u8>>| async move {
+        let error_message = match serde_json::to_vec(&response) {
+            Ok(e) => e,
+
+            // Close channel that receives server response with an empty response if we cant
+            // create an error to be sent so that there wont be any deadlock.
+            Err(e) => {
+                warn!(
+                    "({}) Marshalling error message to client, error: {}. 
+                Closing command channel.",
+                    err, e
+                );
+
+                drop(channel);
+                return;
+            }
+        };
+
+        match channel.send(error_message).await {
+            Ok(_) => {}
+
+            Err(e) => {
+                warn!(
+                    "Receiving channel closed abruptly on sending error message, error: {}",
+                    e
+                );
+            }
+        }
+
+        drop(channel);
+    };
+
+    while let Some(cmd) = http_user_command.recv().await {
+        let config = config.read().await;
+
+        let url = if config.disable_tls {
+            format!("http://{}", config.host)
+        } else {
+            format!("https://{}", config.host)
+        };
+
+        // Server response.
+        let mut json_response = JsonResponse::default();
+
+        let wrapped_request = client
+            .post(&url)
+            .basic_auth(&config.user, Some(&config.password))
+            .body(cmd.rpc_message)
+            .build();
+        drop(config);
+
+        let request = match wrapped_request {
+            Ok(e) => e,
+
+            Err(e) => {
+                warn!("Error creating HTTP Post request, error: {}", e);
+
+                // On error, errors are logged and channel is closed.
+                json_response.error =
+                    serde_json::Value::String("Error creating HTTP Post request".to_string());
+
+                on_error(
+                    "HTTP request handshake".to_string(),
+                    json_response,
+                    cmd.user_channel,
+                )
+                .await;
+                continue;
+            }
+        };
+
+        let response = match client.execute(request).await {
+            Ok(e) => e.bytes().await,
+
+            Err(e) => {
+                warn!("Error sending RPC message to server, error: {}", e);
+                json_response.error =
+                    serde_json::Value::String(format!("Error sending http request, error: {}", e));
+
+                on_error(
+                    "HTTP request execute".to_string(),
+                    json_response,
+                    cmd.user_channel,
+                )
+                .await;
+
+                continue;
+            }
+        };
+
+        let bytes = match response {
+            Ok(e) => e,
+
+            Err(e) => {
+                warn!("Error retrieving HTTP server response, error: {}", e);
+                on_error("HTTP response".to_string(), json_response, cmd.user_channel).await;
+
+                continue;
+            }
+        };
+
+        let mut channel = cmd.user_channel;
+        match channel.send(bytes.to_vec()).await {
+            Ok(_) => {}
+
+            Err(e) => warn!(
+                "Receiving request channel closed abruptly on HTTP post mode, error: {}",
+                e
+            ),
+        };
+    }
 }

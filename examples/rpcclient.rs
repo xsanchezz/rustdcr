@@ -49,9 +49,10 @@ async fn main() {
 
     let config = connection::ConnConfig {
         host: "127.0.0.1:19109".to_string(),
-        certificates: certs,
         password: "rpcpassword".to_string(),
         user: "rpcuser".to_string(),
+        certificates: certs,
+
         ..Default::default()
     };
 
@@ -94,18 +95,43 @@ async fn main() {
     };
 
     let mut client = client::new(config, notif_handler).await.unwrap();
-    //    client.notify_work().await.unwrap();
-    //   client.notify_new_tickets().await.unwrap();
-    //  client.notify_blocks().await.unwrap();
+
+    client
+        .notify_work()
+        .await
+        .expect("Unable to send work notification command to server")
+        .await
+        .expect("Server replied with an error on notify work");
+
+    client
+        .notify_new_tickets()
+        .await
+        .expect("Unable to send new ticket notification command to server")
+        .await
+        .expect("Server replied with an error on notify work");
+
+    client
+        .notify_blocks()
+        .await
+        .expect("Unable to send block notification command to server")
+        .await
+        .expect("Server replied with an error on notify blocks");
 
     let blk_info = client.get_blockchain_info().await.unwrap();
 
     // Blockchain info is sent to a different async thread.
     tokio::spawn(async move {
-        let a = blk_info.await.unwrap();
+        let a = blk_info
+            .await
+            .expect("Error getting blockchain info result");
 
         println!(
-            "\n\n\n\nBest Block Hash {} \n\nBlocks {}  \n\nChain {} \n\n Chain Work {} \n\n Deployments {:?} \n\n Difficulty {} \n\n Difficulty Ratio {} \n\n Headers {} \n\n Initial Block Download {} \n\n Max Block Size {} \n\n Sync Height {} \n\n Verification Progress {}",
+            "\n\n\n\nBest Block Hash {} \n\nBlocks {}
+            \n\nChain {} \n\nChain Work {}
+            \n\nDeployments {:?} \n\nDifficulty {}
+            \n\nDifficulty Ratio {} \n\nHeaders {}
+            \n\nInitial Block Download {} \n\nMax Block Size {}
+            \n\nSync Height {} \n\nVerification Progress {}",
             a.best_block_hash,
             a.blocks,
             a.chain,
