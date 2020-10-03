@@ -3,7 +3,7 @@ library for Rust based on [Dcrd](https://github.com/decred/dcrd) with true async
 
 ## Ported Functionalities
 - [ ] RPC Client
-    - [ ] Notification
+    - [ ] Websocket Notification
         - [x] Notify On Block Connected
         - [x] Notify On Block Disconnected
         - [x] Notify On Winning Tickets
@@ -13,9 +13,11 @@ library for Rust based on [Dcrd](https://github.com/decred/dcrd) with true async
         - [ ] Notify On Spent And Missed Tickets
         - [ ] Notify On New Tickets
         - [ ] Notify On Stake Difficulty
-        
+
     - [ ] RPC Commands
-        - [x] Get Blockchain Info
+        |        Command      |  Websocket supported |   HTTP Supported   |
+        |:-------------------:|:--------------------:|:------------------:|
+        | Get Blockchain Info |  :white_check_mark:  |  |
 
 - [ ] Chaincfg
     - [x] Chain hash
