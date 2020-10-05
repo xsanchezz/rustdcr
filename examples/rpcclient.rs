@@ -88,11 +88,21 @@ async fn main() {
         .await
         .expect("Server replied with an error on notify blocks");
 
-    let blk_info = client.get_blockchain_info().await.unwrap();
+    // Ensure command is sent to server.
+    let blk_info = client
+        .get_blockchain_info()
+        .await
+        .expect("Could not send get blockchain info request to server");
+
+    let blk_count = client
+        .get_block_count()
+        .await
+        .expect("Could not send get block count request to server");
 
     // Blockchain info is sent to a different async thread.
     tokio::spawn(async move {
-        let a = blk_info
+        // Collect result from server and print result.
+        let blk_info_result = blk_info
             .await
             .expect("Error getting blockchain info result");
 
@@ -103,19 +113,22 @@ async fn main() {
             \n\nDifficulty Ratio {} \n\nHeaders {}
             \n\nInitial Block Download {} \n\nMax Block Size {}
             \n\nSync Height {} \n\nVerification Progress {}",
-            a.best_block_hash,
-            a.blocks,
-            a.chain,
-            a.chain_work,
-            a.deployments,
-            a.difficulty,
-            a.difficulty_ratio,
-            a.headers,
-            a.initial_block_download,
-            a.max_block_size,
-            a.sync_height,
-            a.verification_progress
-        )
+            blk_info_result.best_block_hash,
+            blk_info_result.blocks,
+            blk_info_result.chain,
+            blk_info_result.chain_work,
+            blk_info_result.deployments,
+            blk_info_result.difficulty,
+            blk_info_result.difficulty_ratio,
+            blk_info_result.headers,
+            blk_info_result.initial_block_download,
+            blk_info_result.max_block_size,
+            blk_info_result.sync_height,
+            blk_info_result.verification_progress
+        );
+
+        let blk_count_result = blk_count.await.unwrap();
+        println!("\n\n\nBlock Count: {}", blk_count_result);
     });
 
     client.wait_for_shutdown();

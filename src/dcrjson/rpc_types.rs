@@ -19,3 +19,4 @@ pub(crate) const METHOD_NOTIFY_NEW_TICKETS: &str = "notifynewtickets";
 pub(crate) const METHOD_NOTIFIY_NEW_WORK: &str = "notifywork";
 /// Returns information about the current state of the block chain.
 pub(crate) const METHOD_GET_BLOCKCHAIN_INFO: &str = "getblockchaininfo";
+pub(crate) const METHOD_GET_BLOCK_COUNT: &str = "getblockcount";

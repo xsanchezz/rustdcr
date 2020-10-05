@@ -312,7 +312,7 @@ impl Client {
 
     /// Allows creating custom RPC command and sends command to server returning a receiving
     /// channel that receives results returned by server.
-    pub async fn custom_command(
+    pub async fn send_custom_command(
         &mut self,
         method: &str,
         params: &[serde_json::Value],

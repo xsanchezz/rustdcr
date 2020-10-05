@@ -121,7 +121,7 @@ impl Client {
         &mut self,
         method: String,
     ) -> Result<NotificationsFuture, RpcClientError> {
-        let (id, result_receiver) = match self.custom_command(&method, &[]).await {
+        let (id, result_receiver) = match self.send_custom_command(&method, &[]).await {
             Ok(e) => e,
 
             Err(e) => return Err(e),
