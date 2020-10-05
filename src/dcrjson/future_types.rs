@@ -12,7 +12,7 @@ use {
 
 /// Returns on-notification response from server.
 pub struct NotificationsFuture {
-    pub(crate) message: mpsc::Receiver<Vec<u8>>,
+    pub(crate) message: mpsc::Receiver<chain_command_result::JsonResponse>,
 }
 
 impl Future for NotificationsFuture {
@@ -27,21 +27,11 @@ impl Future for NotificationsFuture {
                 Some(msg) => {
                     trace!("Server sent a Get Blockchain Info result.");
 
-                    let result: chain_command_result::JsonResponse =
-                        match serde_json::from_slice(&msg) {
-                            Ok(val) => val,
-
-                            Err(e) => {
-                                warn!("Error marshalling Get Blockchain Info result.");
-                                return Poll::Ready(Err(super::RpcServerError::Marshaller(e)));
-                            }
-                        };
-
-                    if result.error.is_null() {
+                    if msg.error.is_null() {
                         return Poll::Ready(Ok(()));
                     }
 
-                    let error_value: String = match serde_json::from_value(result.error) {
+                    let error_value: String = match serde_json::from_value(msg.error) {
                         Ok(val) => val,
 
                         Err(e) => {
@@ -53,7 +43,10 @@ impl Future for NotificationsFuture {
                     return Poll::Ready(Err(super::RpcServerError::ServerError(error_value)));
                 }
 
-                None => return Poll::Ready(Err(super::RpcServerError::EmptyResponse)),
+                None => {
+                    warn!("Server sent an empty response");
+                    return Poll::Ready(Err(super::RpcServerError::EmptyResponse));
+                }
             },
 
             Poll::Pending => {
@@ -65,7 +58,7 @@ impl Future for NotificationsFuture {
 
 /// Returns GetBlockchainInfo response from server. This is an asynchronous type.
 pub struct GetBlockchainInfoFuture {
-    pub(crate) message: mpsc::Receiver<Vec<u8>>,
+    pub(crate) message: mpsc::Receiver<chain_command_result::JsonResponse>,
 }
 
 impl Future for GetBlockchainInfoFuture {
@@ -80,23 +73,13 @@ impl Future for GetBlockchainInfoFuture {
                 Some(msg) => {
                     trace!("Server sent a Get Blockchain Info result.");
 
-                    let result: chain_command_result::JsonResponse =
-                        match serde_json::from_slice(&msg) {
-                            Ok(val) => val,
-
-                            Err(e) => {
-                                warn!("Error marshalling Get Blockchain Info response.");
-                                return Poll::Ready(Err(super::RpcServerError::Marshaller(e)));
-                            }
-                        };
-
-                    if !result.error.is_null() {
+                    if !msg.error.is_null() {
                         return Poll::Ready(Err(super::RpcServerError::ServerError(
-                            result.error.to_string(),
+                            msg.error.to_string(),
                         )));
                     }
 
-                    let val = match serde_json::from_value(result.result) {
+                    let val = match serde_json::from_value(msg.result) {
                         Ok(val) => val,
 
                         Err(e) => {
@@ -108,7 +91,10 @@ impl Future for GetBlockchainInfoFuture {
                     return Poll::Ready(Ok(val));
                 }
 
-                None => return Poll::Ready(Err(super::RpcServerError::EmptyResponse)),
+                None => {
+                    warn!("Server sent an empty response");
+                    return Poll::Ready(Err(super::RpcServerError::EmptyResponse));
+                }
             },
 
             Poll::Pending => {

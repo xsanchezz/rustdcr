@@ -3,7 +3,7 @@
 
 use {
     super::{connection, constants, infrastructure, notify, RpcClientError},
-    crate::helper::waitgroup,
+    crate::{dcrjson::chain_command_result::JsonResponse, helper::waitgroup},
     async_std::sync::{Arc, Mutex, RwLock},
     futures::stream::SplitStream,
     log::{info, warn},
@@ -138,7 +138,7 @@ pub struct Client {
 
     /// Maps request ID to receiver channel.
     /// Messages received from rpc server are mapped with ID stored.
-    pub(crate) receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<Vec<u8>>>>>,
+    pub(crate) receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<JsonResponse>>>>,
 
     /// Indicates whether the client is disconnected from the server.
     is_ws_disconnected: Arc<RwLock<bool>>,
@@ -316,7 +316,7 @@ impl Client {
         &mut self,
         method: &str,
         params: &[serde_json::Value],
-    ) -> Result<(u64, mpsc::Receiver<Vec<u8>>), RpcClientError> {
+    ) -> Result<(u64, mpsc::Receiver<JsonResponse>), RpcClientError> {
         let (id, msg) = self.marshal_command(method, params);
 
         let msg = match msg {
@@ -324,7 +324,6 @@ impl Client {
 
             Err(e) => {
                 warn!("error marshalling custom command, error: {}", e);
-
                 return Err(RpcClientError::Marshaller(e));
             }
         };

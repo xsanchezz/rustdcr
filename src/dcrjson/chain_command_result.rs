@@ -49,7 +49,7 @@ pub(crate) struct JsonRequest<'a> {
 /// Implements JSON RPC response structure from server.
 #[derive(serde::Deserialize, serde::Serialize, Default, Debug)]
 #[serde(default)]
-pub(crate) struct JsonResponse {
+pub struct JsonResponse {
     pub jsonrpc: String,
     pub id: serde_json::Value,
     pub method: serde_json::Value,

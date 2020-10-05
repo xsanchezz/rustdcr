@@ -6,36 +6,8 @@ use rustdcr::{
 
 use std::{fs, path::PathBuf};
 
-use slog;
-use slog_scope;
-use slog_stdlog;
-use slog_term;
-
-use std::fs::OpenOptions;
-
-use slog::Drain;
-
 #[tokio::main]
 async fn main() {
-    let log_path = "rpcclient.log";
-    let file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(log_path)
-        .unwrap();
-
-    // create logger
-    let decorator = slog_term::PlainSyncDecorator::new(file);
-    let drain = slog_term::FullFormat::new(decorator).build().fuse();
-    let logger = slog::Logger::root(drain, slog::o!());
-
-    // slog_stdlog uses the logger from slog_scope, so set a logger there
-    let _guard = slog_scope::set_global_logger(logger);
-
-    // register slog_stdlog as the log handler with the log crate
-    slog_stdlog::init().unwrap();
-
     // Get dcrd app directory, if none is found use current path.
     let mut app_dir = match app_data::get_app_data_dir("dcrd".into(), false) {
         Some(dir) => dir,
@@ -52,7 +24,6 @@ async fn main() {
         password: "rpcpassword".to_string(),
         user: "rpcuser".to_string(),
         certificates: certs,
-
         ..Default::default()
     };
 
@@ -85,9 +56,9 @@ async fn main() {
         on_new_tickets: Some(
             |hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>| {
                 println!(
-                "\n\n\t\t\t\tOn Tickets Notif\n\n\nHash: {:?}\n\n\nHeight: {:?}\n\n\nStake Diff: {:?}\n\n\nTickets: {:?}\n\n\n\n",
-                hash.string().unwrap(),height, stake_diff,tickets,
-            )
+                    "\n\n\t\t\t\tOn Tickets Notif\n\n\nHash: {:?}\n\n\nHeight: {:?}\n\n\nStake Diff: {:?}\n\n\nTickets: {:?}\n\n\n\n",
+                    hash.string().unwrap(),height, stake_diff,tickets,
+                )
             },
         ),
 

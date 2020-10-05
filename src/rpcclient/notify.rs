@@ -55,5 +55,6 @@ pub struct NotificationHandlers {
     /// on_unknown_notification callback function is invoked when an unrecognized notification is received.
     /// This typically means the notification handling code for this package needs to be updated for a new
     /// notification type or the caller is using a custom notification this package does not know about.
-    pub on_unknown_notification: Option<fn(method: String, params: Vec<u8>)>,
+    pub on_unknown_notification:
+        Option<fn(method: String, params: crate::dcrjson::chain_command_result::JsonResponse)>,
 }

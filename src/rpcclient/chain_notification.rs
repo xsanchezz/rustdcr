@@ -4,14 +4,10 @@ use {
     super::RpcClientError,
     crate::{
         chaincfg::chainhash::Hash,
-        dcrjson::{
-            chain_command_result, future_types::NotificationsFuture, parse_hex_parameters,
-            rpc_types,
-        },
+        dcrjson::{future_types::NotificationsFuture, parse_hex_parameters, rpc_types},
         rpcclient::client::Client,
     },
     log::{trace, warn},
-    tokio_tungstenite::tungstenite::Message,
 };
 
 // ToDo: Currently, async functions are not allowed in traits.
@@ -138,32 +134,6 @@ impl Client {
         Ok(NotificationsFuture {
             message: result_receiver,
         })
-    }
-}
-
-pub(super) fn on_notification(msg: Message) -> Option<chain_command_result::JsonResponse> {
-    let msg = msg.into_data();
-
-    match serde_json::from_slice(&msg) {
-        Ok(val) => {
-            let result: chain_command_result::JsonResponse = val;
-
-            if !result.params.is_empty() {
-                return Some(result);
-            }
-
-            return None;
-        }
-
-        Err(e) => {
-            warn!(
-                "Error marshalling server result on notification, error: {}, {:?}.",
-                e,
-                std::str::from_utf8(&msg),
-            );
-
-            return None;
-        }
     }
 }
 
