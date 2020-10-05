@@ -99,6 +99,11 @@ async fn main() {
         .await
         .expect("Could not send get block count request to server");
 
+    let blk_hash = client
+        .get_block_hash(0)
+        .await
+        .expect("Could not send get block hash request to server");
+
     // Blockchain info is sent to a different async thread.
     tokio::spawn(async move {
         // Collect result from server and print result.
@@ -129,6 +134,9 @@ async fn main() {
 
         let blk_count_result = blk_count.await.unwrap();
         println!("\n\n\nBlock Count: {}", blk_count_result);
+
+        let blk_hash_result = blk_hash.await.unwrap();
+        println!("\n\n\nBlock Hash: {}", blk_hash_result.string().unwrap())
     });
 
     client.wait_for_shutdown();

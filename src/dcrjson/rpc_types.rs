@@ -19,4 +19,7 @@ pub(crate) const METHOD_NOTIFY_NEW_TICKETS: &str = "notifynewtickets";
 pub(crate) const METHOD_NOTIFIY_NEW_WORK: &str = "notifywork";
 /// Returns information about the current state of the block chain.
 pub(crate) const METHOD_GET_BLOCKCHAIN_INFO: &str = "getblockchaininfo";
+/// Returns the number of blocks in the longest block chain.
 pub(crate) const METHOD_GET_BLOCK_COUNT: &str = "getblockcount";
+/// Returns hash of the block in best block chain at the given height.
+pub(crate) const METHOD_GET_BLOCK_HASH: &str = "getblockhash";
