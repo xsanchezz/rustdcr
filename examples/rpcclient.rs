@@ -112,12 +112,19 @@ async fn main() {
             .expect("Error getting blockchain info result");
 
         println!(
-            "\n\n\n\nBest Block Hash {} \n\nBlocks {}
-            \n\nChain {} \n\nChain Work {}
-            \n\nDeployments {:?} \n\nDifficulty {}
-            \n\nDifficulty Ratio {} \n\nHeaders {}
-            \n\nInitial Block Download {} \n\nMax Block Size {}
-            \n\nSync Height {} \n\nVerification Progress {}",
+            "Get Blockchain Information Result
+            -Best Block Hash: {}
+            -Blocks: {}
+            -Chain: {}
+            -Chain Work: {}
+            -Deployments: {:?} 
+            -Difficulty: {}
+            -Difficulty Ratio: {} 
+            -Headers: {}
+            -Initial Block Download: {} 
+            -Max Block Size: {}
+            -Sync Height: {} 
+            -Verification Progress: {}",
             blk_info_result.best_block_hash,
             blk_info_result.blocks,
             blk_info_result.chain,
@@ -133,11 +140,11 @@ async fn main() {
         );
 
         let blk_count_result = blk_count.await.unwrap();
-        println!("\n\n\nBlock Count: {}", blk_count_result);
+        println!("Block Count Result: {}", blk_count_result);
 
         let blk_hash_result = blk_hash.await.unwrap();
         println!(
-            "\n\n\nFirst/Zeroth Block Hash: {}",
+            "First/Zeroth Block Hash: {}",
             blk_hash_result.string().unwrap()
         )
     });
