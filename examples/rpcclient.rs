@@ -136,7 +136,10 @@ async fn main() {
         println!("\n\n\nBlock Count: {}", blk_count_result);
 
         let blk_hash_result = blk_hash.await.unwrap();
-        println!("\n\n\nBlock Hash: {}", blk_hash_result.string().unwrap())
+        println!(
+            "\n\n\nFirst/Zeroth Block Hash: {}",
+            blk_hash_result.string().unwrap()
+        )
     });
 
     client.wait_for_shutdown();
