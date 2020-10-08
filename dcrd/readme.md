@@ -10,11 +10,11 @@ library for Rust based on [Dcrd](https://github.com/decred/dcrd) with true async
         - [x] Notify On Work
         - [x] Notify On Transaction Accepted
         - [x] Notify On Transaction Accepted Verbose
+        - [x] Notify On Stake Difficulty
         - [ ] Notify On Relevant Transaction Spent
         - [ ] Notify On Reorganization
         - [ ] Notify On Spent And Missed Tickets
         - [ ] Notify On New Tickets
-        - [ ] Notify On Stake Difficulty
 
     - [ ] RPC Commands
         |        Command      |  Websocket supported |   HTTP Supported   |
