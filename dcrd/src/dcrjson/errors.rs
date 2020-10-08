@@ -10,7 +10,7 @@ pub enum RpcServerError {
     /// Invalid response
     InvalidResponse(String),
     /// Error returned to client by server.
-    ServerError(String),
+    ServerError(super::chain_command_result::RpcError),
 }
 
 impl std::fmt::Display for RpcServerError {
@@ -21,7 +21,7 @@ impl std::fmt::Display for RpcServerError {
                 write!(f, "Invalid response from server, error: {}.", e)
             }
             RpcServerError::Marshaller(ref e) => write!(f, "Marshaller error: {}.", e),
-            RpcServerError::ServerError(ref e) => write!(f, "Server returned an error: {}.", e),
+            RpcServerError::ServerError(ref e) => write!(f, "Server returned an error: {:?}.", e),
         }
     }
 }
@@ -41,7 +41,7 @@ impl std::fmt::Debug for RpcServerError {
                 write!(f, "RpcServerError(Marshaller error: {})", e)
             }
             RpcServerError::ServerError(ref e) => {
-                write!(f, "RpcServerError(Server returned an error: {})", e)
+                write!(f, "RpcServerError(Server returned an error: {:?})", e)
             }
         }
     }

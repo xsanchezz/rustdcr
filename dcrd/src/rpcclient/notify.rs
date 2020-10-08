@@ -66,6 +66,13 @@ pub struct NotificationHandlers {
     /// made to register for the notification and the function is non-nil.
     pub on_tx_accepted: Option<fn(hash: Hash, amount: crate::dcrutil::amount::Amount)>,
 
+    /// Invoked when a transaction is accepted into the memory pool.
+    /// It will only be invoked if a preceding call to notify_new_transactions
+    /// with the verbose flag set to true has been made to register for
+    /// the notification and the function is non-nil.
+    pub on_tx_accepted_verbose:
+        Option<fn(tx_details: crate::dcrjson::chain_command_result::TxRawResult)>,
+
     /// on_stake_difficulty callback function is invoked when a block is connected
     /// to the longest `best` chain  and a new difficulty is calculated. It will only
     /// be invoked if a preceding call to NotifyStakeDifficulty has been

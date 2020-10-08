@@ -8,6 +8,8 @@ library for Rust based on [Dcrd](https://github.com/decred/dcrd) with true async
         - [x] Notify On Block Disconnected
         - [x] Notify On Winning Tickets
         - [x] Notify On Work
+        - [x] Notify On Transaction Accepted
+        - [x] Notify On Transaction Accepted Verbose
         - [ ] Notify On Relevant Transaction Spent
         - [ ] Notify On Reorganization
         - [ ] Notify On Spent And Missed Tickets

@@ -1,5 +1,5 @@
 //! Chain Notification Commands.
-//! Contains all chain [non-wallet] notification commands to RPC server.
+//! Contains all chain non-wallet notification commands to RPC server.
 use {
     super::RpcClientError,
     crate::{
@@ -49,7 +49,7 @@ impl Client {
         }
 
         let notif_future = self
-            .create_notification(rpc_types::METHOD_NOTIFY_BLOCKS.to_string())
+            .create_notification(rpc_types::METHOD_NOTIFY_BLOCKS.to_string(), &[])
             .await;
 
         notif_future
@@ -84,7 +84,7 @@ impl Client {
         }
 
         let notif_future = self
-            .create_notification(rpc_types::METHOD_NOTIFY_NEW_TICKETS.to_string())
+            .create_notification(rpc_types::METHOD_NOTIFY_NEW_TICKETS.to_string(), &[])
             .await;
 
         notif_future
@@ -111,7 +111,43 @@ impl Client {
         }
 
         let notif_future = self
-            .create_notification(rpc_types::METHOD_NOTIFIY_NEW_WORK.to_string())
+            .create_notification(rpc_types::METHOD_NOTIFIY_NEW_WORK.to_string(), &[])
+            .await;
+
+        notif_future
+    }
+
+    pub async fn notify_new_transactions(
+        &mut self,
+        verbose: bool,
+    ) -> Result<NotificationsFuture, RpcClientError> {
+        let config = self.configuration.read().await;
+
+        if config.http_post_mode {
+            return Err(RpcClientError::ClientNotConnected);
+        }
+        drop(config);
+
+        if self.is_disconnected().await {
+            return Err(RpcClientError::RpcDisconnected);
+        }
+
+        let callbacks = (
+            self.notification_handler.on_tx_accepted,
+            self.notification_handler.on_tx_accepted_verbose,
+        );
+
+        if callbacks.0.is_none() && callbacks.1.is_none() {
+            return Err(RpcClientError::UnregisteredNotification(
+                "Notify new transactions".into(),
+            ));
+        }
+
+        let notif_future = self
+            .create_notification(
+                rpc_types::METHOD_NEW_TX.to_string(),
+                &[serde_json::Value::Bool(verbose)],
+            )
             .await;
 
         notif_future
@@ -120,8 +156,9 @@ impl Client {
     async fn create_notification(
         &mut self,
         method: String,
+        params: &[serde_json::Value],
     ) -> Result<NotificationsFuture, RpcClientError> {
-        let (id, result_receiver) = match self.send_custom_command(&method, &[]).await {
+        let (id, result_receiver) = match self.send_custom_command(&method, params).await {
             Ok(e) => e,
 
             Err(e) => return Err(e),
@@ -346,4 +383,94 @@ pub(super) fn on_work(
     };
 
     on_work_callback(data, target, reason);
+}
+
+pub(super) fn on_tx_accepted(
+    params: &Vec<serde_json::Value>,
+    on_tx_callback: fn(hash: Hash, amount: crate::dcrutil::amount::Amount),
+) {
+    trace!("Received transaction accepted notification");
+
+    if params.len() != 2 {
+        warn!(
+            "Server sent wrong number of parameters on transaction accepted notification handler"
+        );
+        return;
+    }
+
+    let tx_hash_string: String = match serde_json::from_value(params[0].clone()) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!(
+                "Error unmarshalling hash string params in on transaction accepted notification, error: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    let hash = match crate::chaincfg::chainhash::Hash::new_from_str(&tx_hash_string) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!("Error converting hash string to chain hash in on transaction accepted notification, error: {}", e);
+            return;
+        }
+    };
+
+    let amount_unit: f64 = match serde_json::from_value(params[1].clone()) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!(
+                "Error marshalling amount unit in on transaction accepted notification, error: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    let amount = match crate::dcrutil::amount::new(amount_unit) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!(
+                "Error converting marshalled number to Amount type, error: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    on_tx_callback(hash, amount)
+}
+
+pub(super) fn on_tx_accepted_verbose(
+    params: &Vec<serde_json::Value>,
+    on_tx_verbose_callback: fn(tx_details: crate::dcrjson::chain_command_result::TxRawResult),
+) {
+    trace!("Received transaction accepted verbose notification");
+
+    if params.len() != 1 {
+        warn!(
+            "Server sent wrong number of parameters on transaction accepted verbsose notification handler"
+        );
+        return;
+    }
+
+    let tx_details: crate::dcrjson::chain_command_result::TxRawResult =
+        match serde_json::from_value(params[1].clone()) {
+            Ok(e) => e,
+
+            Err(e) => {
+                warn!(
+                "Error marshalling amount unit in on transaction accepted notification, error: {}",
+                e
+            );
+                return;
+            }
+        };
+
+    on_tx_verbose_callback(tx_details);
 }

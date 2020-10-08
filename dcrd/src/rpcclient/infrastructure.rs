@@ -719,6 +719,26 @@ pub(super) async fn handle_notification(
                     }
                 },
 
+                rpc_types::NOTIFICATION_METHOD_TX_ACCEPTED => match notif.on_tx_accepted {
+                    Some(e) => chain_notification::on_tx_accepted(&msg.params, e),
+
+                    None => {
+                        warn!("On transaction accepted notification callback not registered.");
+                        continue;
+                    }
+                },
+
+                rpc_types::NOTIFICATION_METHOD_TX_ACCEPTED_VERBOSE => {
+                    match notif.on_tx_accepted_verbose {
+                        Some(e) => chain_notification::on_tx_accepted_verbose(&msg.params, e),
+
+                        None => {
+                            warn!("On transaction accepted verbose notification callback not registered.");
+                            continue;
+                        }
+                    }
+                }
+
                 _ => match notif.on_unknown_notification {
                     Some(e) => {
                         e(method.to_string(), msg);

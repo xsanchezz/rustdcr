@@ -2,7 +2,10 @@
 //! Contains all asynchronous command structures.
 
 use {
-    super::{chain_command_result, chain_command_result::JsonResponse},
+    super::{
+        chain_command_result,
+        chain_command_result::{JsonResponse, RpcError},
+    },
     core::future::Future,
     core::pin::Pin,
     core::task::{Context, Poll},
@@ -31,16 +34,7 @@ impl Future for NotificationsFuture {
                         return Poll::Ready(Ok(()));
                     }
 
-                    let error_value: String = match serde_json::from_value(msg.error) {
-                        Ok(val) => val,
-
-                        Err(e) => {
-                            warn!("Error marshalling error value.");
-                            return Poll::Ready(Err(super::RpcServerError::Marshaller(e)));
-                        }
-                    };
-
-                    return Poll::Ready(Err(super::RpcServerError::ServerError(error_value)));
+                    return Poll::Ready(Err(get_error_value(msg.error)));
                 }
 
                 None => {
@@ -74,9 +68,7 @@ impl Future for GetBlockchainInfoFuture {
                     trace!("Server sent a Get Blockchain Info result.");
 
                     if !msg.error.is_null() {
-                        return Poll::Ready(Err(super::RpcServerError::ServerError(
-                            msg.error.to_string(),
-                        )));
+                        return Poll::Ready(Err(get_error_value(msg.error)));
                     }
 
                     let val = match serde_json::from_value(msg.result) {
@@ -121,9 +113,7 @@ impl Future for GetBlockCountFuture {
                     trace!("Server sent a Get Blocks Count result.");
 
                     if !msg.error.is_null() {
-                        return Poll::Ready(Err(super::RpcServerError::ServerError(
-                            msg.error.to_string(),
-                        )));
+                        return Poll::Ready(Err(get_error_value(msg.error)));
                     }
 
                     let val = match serde_json::from_value(msg.result) {
@@ -168,9 +158,7 @@ impl Future for GetBlockHashFuture {
                     trace!("Server sent a Get Blocks Count result.");
 
                     if !msg.error.is_null() {
-                        return Poll::Ready(Err(super::RpcServerError::ServerError(
-                            msg.error.to_string(),
-                        )));
+                        return Poll::Ready(Err(get_error_value(msg.error)));
                     }
 
                     let hash: String = match serde_json::from_value(msg.result) {
@@ -207,4 +195,17 @@ impl Future for GetBlockHashFuture {
             }
         };
     }
+}
+
+fn get_error_value(error: serde_json::Value) -> super::RpcServerError {
+    let error_value: RpcError = match serde_json::from_value(error) {
+        Ok(val) => val,
+
+        Err(e) => {
+            warn!("Error marshalling error value.");
+            return super::RpcServerError::Marshaller(e);
+        }
+    };
+
+    return super::RpcServerError::ServerError(error_value);
 }
