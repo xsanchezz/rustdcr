@@ -739,6 +739,17 @@ pub(super) async fn handle_notification(
                     }
                 }
 
+                rpc_types::NOTIFICATION_METHOD_STAKE_DIFFICULTY => {
+                    match notif.on_stake_difficulty {
+                        Some(e) => chain_notification::on_stake_difficulty(&msg.params, e),
+
+                        None => {
+                            warn!("On stake difficulty notification callback not registered.");
+                            continue;
+                        }
+                    }
+                }
+
                 _ => match notif.on_unknown_notification {
                     Some(e) => {
                         e(method.to_string(), msg);

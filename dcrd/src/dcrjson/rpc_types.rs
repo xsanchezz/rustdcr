@@ -16,6 +16,8 @@ pub(crate) const NOTIFICATION_METHOD_TX_ACCEPTED: &str = "txaccepted";
 /// Notifies when a new transaction has been accepted and the client
 /// has requested verbose transaction details.
 pub(crate) const NOTIFICATION_METHOD_TX_ACCEPTED_VERBOSE: &str = "txacceptedverbose";
+/// Notifies a client when the stake difficulty has been updated
+pub(crate) const NOTIFICATION_METHOD_STAKE_DIFFICULTY: &str = "stakedifficulty";
 
 /// Issues a notify blocks command to RPC server.
 pub(crate) const METHOD_NOTIFY_BLOCKS: &str = "notifyblocks";
@@ -23,7 +25,12 @@ pub(crate) const METHOD_NOTIFY_BLOCKS: &str = "notifyblocks";
 pub(crate) const METHOD_NOTIFY_NEW_TICKETS: &str = "notifynewtickets";
 /// Registers the client to receive notifications when a new block template has been generated
 pub(crate) const METHOD_NOTIFIY_NEW_WORK: &str = "notifywork";
+/// Registers the client to receive either a txaccepted or a txacceptedverbose notification
+/// when a new transaction is accepted into the mempool.
 pub(crate) const METHOD_NEW_TX: &str = "notifynewtransactions";
+/// Registers the client to receive a stakedifficulty notification when the stake difficulty is updated.
+pub(crate) const METHOD_STAKE_DIFFICULTY: &str = "notifystakedifficulty";
+
 /// Returns information about the current state of the block chain.
 pub(crate) const METHOD_GET_BLOCKCHAIN_INFO: &str = "getblockchaininfo";
 /// Returns the number of blocks in the longest block chain.

@@ -80,6 +80,15 @@ async fn main() {
             },
         ),
 
+        on_stake_difficulty: Some(|hash: Hash, height: i64, stake_diff: i64| {
+            println!(
+                "\t\t\t\tOn Stake Difficulty\n-Hash: {:?} \n-Height: {} \n-Stake Difference: {}",
+                hash.string().unwrap(),
+                height,
+                stake_diff,
+            )
+        }),
+
         ..Default::default()
     };
 
@@ -117,6 +126,13 @@ async fn main() {
         .expect("Unable to send block notification command to server")
         .await
         .expect("Server replied with an error on notify blocks");
+
+    client
+        .notify_stake_difficulty()
+        .await
+        .expect("Unable to send stake notification command to server")
+        .await
+        .expect("Server replied with an error on stake notification");
 
     client.wait_for_shutdown();
 }

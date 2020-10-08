@@ -153,6 +153,36 @@ impl Client {
         notif_future
     }
 
+    /// Registers the client to receive notifications when blocks are connected
+    /// to the main chain and stake difficulty is updated. The notifications are delivered to
+    /// the notification handlers associated with the client. Calling this function has no effect
+    /// if there are no notification handlers and will result in an error if the client is
+    /// configured to run in HTTP POST mode.
+    pub async fn notify_stake_difficulty(&mut self) -> Result<NotificationsFuture, RpcClientError> {
+        let config = self.configuration.read().await;
+
+        if config.http_post_mode {
+            return Err(RpcClientError::ClientNotConnected);
+        }
+        drop(config);
+
+        if self.is_disconnected().await {
+            return Err(RpcClientError::RpcDisconnected);
+        }
+
+        if self.notification_handler.on_stake_difficulty.is_none() {
+            return Err(RpcClientError::UnregisteredNotification(
+                "Notify stake difficulty".into(),
+            ));
+        }
+
+        let notif_future = self
+            .create_notification(rpc_types::METHOD_STAKE_DIFFICULTY.to_string(), &[])
+            .await;
+
+        notif_future
+    }
+
     async fn create_notification(
         &mut self,
         method: String,
@@ -459,18 +489,78 @@ pub(super) fn on_tx_accepted_verbose(
         return;
     }
 
-    let tx_details: crate::dcrjson::chain_command_result::TxRawResult =
-        match serde_json::from_value(params[1].clone()) {
-            Ok(e) => e,
+    let tx_details: crate::dcrjson::chain_command_result::TxRawResult = match serde_json::from_value(
+        params[0].clone(),
+    ) {
+        Ok(e) => e,
 
-            Err(e) => {
-                warn!(
-                "Error marshalling amount unit in on transaction accepted notification, error: {}",
+        Err(e) => {
+            warn!(
+                "Error marshalling amount unit in on transaction accepted verbose notification, error: {}",
                 e
             );
-                return;
-            }
-        };
+            return;
+        }
+    };
 
     on_tx_verbose_callback(tx_details);
+}
+
+pub(super) fn on_stake_difficulty(
+    params: &Vec<serde_json::Value>,
+    on_stake_difficulty_callback: fn(hash: Hash, height: i64, stake_diff: i64),
+) {
+    trace!("Received stake difficulty notification");
+
+    if params.len() != 3 {
+        warn!("Server sent wrong number of parameters on stake difficulty notification handler");
+        return;
+    }
+
+    let block_hash_string: String = match serde_json::from_value(params[0].clone()) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!(
+                "Error unmarshalling hash string params in on stake difficulty notification, error: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    let hash = match crate::chaincfg::chainhash::Hash::new_from_str(&block_hash_string) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!("Error converting hash string to chain hash on stake difficulty notification, error: {}", e);
+            return;
+        }
+    };
+
+    let block_height: i64 = match serde_json::from_value(params[1].clone()) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!(
+                "Error unmarshalling block height params in on stake difficulty notification, error: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    let stake_diff: i64 = match serde_json::from_value(params[2].clone()) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!(
+                "Error unmarshalling stake diff params in on stake difficulty notification, error: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    on_stake_difficulty_callback(hash, block_height, stake_diff)
 }
