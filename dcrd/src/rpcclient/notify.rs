@@ -17,7 +17,9 @@ pub struct NotificationHandlers {
     pub on_client_connected: Option<fn()>,
 
     /// on_block_connected callback function is invoked when a block is connected to the
-    /// longest `best` chain.
+    /// longest `best` chain. It will only be invoked if a preceding call to
+    /// NotifyBlocks has been made to register for the notification and the
+    /// function is non-nil.
     pub on_block_connected: Option<fn(block_header: Vec<u8>, transactions: Vec<Vec<u8>>)>,
 
     /// on_block_disconnected callback function is invoked when a block is disconnected from
@@ -25,6 +27,8 @@ pub struct NotificationHandlers {
     pub on_block_disconnected: Option<fn(block_header: Vec<u8>)>,
 
     /// on_work callback function is invoked when a new block template is generated.
+    /// It will only be invoked if a preceding call to NotifyWork has
+    /// been made to register for the notification and the function is non-nil.
     pub on_work: Option<fn(data: Vec<u8>, target: Vec<u8>, reason: String)>,
 
     /// on_relevant_tx_accepted callback function is invoked when an unmined transaction passes
@@ -32,24 +36,40 @@ pub struct NotificationHandlers {
     pub on_relevant_tx_accepted: Option<fn(transaction: Vec<u8>)>,
 
     /// on_reorganization callback function is invoked when the blockchain begins reorganizing.
+    /// It will only be invoked if a preceding call to NotifyBlocks has been made to register
+    /// for the notification and the function is non-nil.
     pub on_reorganization:
         Option<fn(old_hash: Hash, old_height: i32, new_hash: Hash, new_height: i32)>,
 
     /// on_winning_tickets callback function is invoked when a block is connected and eligible tickets
-    /// to be voted on for this chain are given.
+    /// to be voted on for this chain are given. It will only be invoked if a
+    /// preceding call to NotifyWinningTickets has been made to register for the
+    /// notification and the function is non-nil.
     pub on_winning_tickets: Option<fn(block_hash: Hash, block_height: i64, tickets: Vec<Hash>)>,
 
     /// on_spent_and_missed_tickets callback function is invoked when a block is connected to the
-    /// longest `best` chain and tickets are spent or missed.
+    /// longest `best` chain and tickets are spent or missed. It will only be
+    /// invoked if a preceding call to NotifySpentAndMissedTickets has been made to
+    /// register for the notification and the function is non-nil.
     pub on_spent_and_missed_tickets:
         Option<fn(hash: Hash, height: i64, stake_diff: i64, tickets: HashMap<Hash, bool>)>,
 
     /// on_new_tickets callback function is invoked when a block is connected to the longest `best` chain
-    /// and tickets have matured and become active.
+    /// and tickets have matured and become active. It will only be invoked
+    /// if a preceding call to NotifyNewTickets has been made to register for the
+    /// notification and the function is non-nil.
     pub on_new_tickets: Option<fn(hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>)>,
 
-    /// on_stake_difficulty callback function is invoked when a block is connected to the longest `best` chain
-    /// and a new difficulty is calculated.
+    /// on_tx_accepted is invoked when a transaction is accepted into the
+    /// memory pool.  It will only be invoked if a preceding call to
+    /// NotifyNewTransactions with the verbose flag set to false has been
+    /// made to register for the notification and the function is non-nil.
+    pub on_tx_accepted: Option<fn(hash: Hash, amount: crate::dcrutil::amount::Amount)>,
+
+    /// on_stake_difficulty callback function is invoked when a block is connected
+    /// to the longest `best` chain  and a new difficulty is calculated. It will only
+    /// be invoked if a preceding call to NotifyStakeDifficulty has been
+    /// made to register for the notification and the function is non-nil.
     pub on_stake_difficulty: Option<fn(hash: Hash, height: i64, stake_diff: i64)>,
 
     /// on_unknown_notification callback function is invoked when an unrecognized notification is received.

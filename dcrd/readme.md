@@ -26,4 +26,4 @@ library for Rust based on [Dcrd](https://github.com/decred/dcrd) with true async
 
 - [ ] Dcr Utilities
     - [x] Get App Data Directory
-    - [ ] DCR Amount
+    - [x] DCR Amount
