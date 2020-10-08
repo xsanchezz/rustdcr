@@ -24,7 +24,7 @@ use std::{
 /// # Example
 ///
 /// ```
-/// let dir = dcrdrs::dcrutil::app_data::get_app_data_dir(&mut "myapp", false);
+/// let dir = rustdcr::dcrutil::get_app_data_dir("myapp", false);
 /// ```
 /// ## Gives
 ///

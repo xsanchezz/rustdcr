@@ -1,6 +1,6 @@
 use rustdcr::{
     chaincfg::chainhash::Hash,
-    dcrutil::app_data,
+    dcrutil,
     rpcclient::{client, connection, notify},
 };
 
@@ -9,7 +9,7 @@ use std::{fs, path::PathBuf};
 #[tokio::main]
 async fn main() {
     // Get dcrd app directory, if none is found use current path.
-    let mut app_dir = match app_data::get_app_data_dir("dcrd".into(), false) {
+    let mut app_dir = match dcrutil::get_app_data_dir("dcrd".into(), false) {
         Some(dir) => dir,
 
         None => PathBuf::new().join("."),

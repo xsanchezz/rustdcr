@@ -63,7 +63,7 @@ mod tests {
     use super::*;
     use std::thread;
     #[test]
-    fn it_work() {
+    fn test_waitgroup() {
         let wg = new();
         let v = vec![1, 2, 3, 4, 5];
         wg.add(v.len());
