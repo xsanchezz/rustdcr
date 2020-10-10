@@ -750,6 +750,15 @@ pub(super) async fn handle_notification(
                     }
                 }
 
+                rpc_types::NOTIFICATION_METHOD_REORGANIZATION => match notif.on_reorganization {
+                    Some(e) => chain_notification::on_reorganization(&msg.params, e),
+
+                    None => {
+                        warn!("On block reorganization callback not registered.");
+                        continue;
+                    }
+                },
+
                 _ => match notif.on_unknown_notification {
                     Some(e) => {
                         e(method.to_string(), msg);

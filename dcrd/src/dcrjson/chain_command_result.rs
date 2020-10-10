@@ -67,7 +67,7 @@ pub struct BlockchainInfo {
 }
 
 /// TxRawResult models the data from the getrawtransaction command.
-#[derive(serde::Deserialize, Default, Debug)]
+#[derive(serde::Deserialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct TxRawResult {
     pub hex: String,
@@ -91,7 +91,7 @@ pub struct TxRawResult {
 }
 
 /// Vin models parts of the tx data. It is defined separately since getrawtransaction, decoderawtransaction, and searchrawtransaction use the same structure.
-#[derive(serde::Deserialize, Default, Debug)]
+#[derive(serde::Deserialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct Vin {
     coinbase: String,
@@ -114,7 +114,7 @@ pub struct Vin {
 /// ScriptSig models a signature script.  It is defined separately since it only
 /// applies to non-coinbase.  Therefore the field in the Vin structure needs
 /// to be a pointer.
-#[derive(serde::Deserialize, Default, Debug)]
+#[derive(serde::Deserialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct ScriptSig {
     asm: String,
@@ -123,7 +123,7 @@ pub struct ScriptSig {
 
 /// Vout models parts of the tx data.  It is defined separately since both
 /// getrawtransaction and decoderawtransaction use the same structure.
-#[derive(serde::Deserialize, Default, Debug)]
+#[derive(serde::Deserialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct Vout {
     pub value: f64,
@@ -133,7 +133,7 @@ pub struct Vout {
     pub script_pub_key: ScriptPubKeyResult,
 }
 
-#[derive(serde::Deserialize, Default, Debug)]
+#[derive(serde::Deserialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct ScriptPubKeyResult {
     asm: String,
@@ -142,7 +142,7 @@ pub struct ScriptPubKeyResult {
     req_sigs: i32,
     #[serde(rename = "type")]
     script_type: String,
-    addresses: String,
+    addresses: Vec<String>,
     #[serde(rename = "commitamt")]
     commit_amount: f64,
 }

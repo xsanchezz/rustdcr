@@ -89,6 +89,19 @@ async fn main() {
             )
         }),
 
+        on_reorganization: Some(
+            |old_hash: Hash, old_height: i32, new_hash: Hash, new_height: i32| {
+                println!(
+                    "\t\t\t\tOn Block Reorganization
+                    \n-Old Hash: {:?} \n-Old Height: {:?} \n-New Hash: {:?} \n-New Height: {:?}",
+                    old_hash.string().unwrap(),
+                    old_height,
+                    new_hash.string().unwrap(),
+                    new_height
+                )
+            },
+        ),
+
         ..Default::default()
     };
 
@@ -114,7 +127,7 @@ async fn main() {
     );
 
     client
-        .notify_new_transactions(false)
+        .notify_new_transactions(true)
         .await
         .expect("Could not sent notify new tx notif to server")
         .await

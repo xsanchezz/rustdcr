@@ -285,6 +285,67 @@ pub(super) fn on_block_disconnected(
     on_block_disconnected(block_header);
 }
 
+pub(super) fn on_reorganization(
+    params: &Vec<serde_json::Value>,
+    on_reorganization_callback: fn(
+        old_hash: Hash,
+        old_height: i32,
+        new_hash: Hash,
+        new_height: i32,
+    ),
+) {
+    trace!("Received on reorganization notification");
+
+    if params.len() != 4 {
+        warn!("Server sent wrong number of parameters on reorganization notification handler");
+        return;
+    }
+
+    let old_hash = match crate::dcrjson::marshal_to_hash(params[0].clone()) {
+        Some(e) => e,
+
+        None => {
+            warn!("Error marshalling old_hash params in on reorganization notifiaction.");
+            return;
+        }
+    };
+
+    let old_height: i32 = match serde_json::from_value(params[1].clone()) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!(
+                "Error unmarshalling old height params in reorganization notification, error: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    let new_hash = match crate::dcrjson::marshal_to_hash(params[2].clone()) {
+        Some(e) => e,
+
+        None => {
+            warn!("Error marshalling new_hash params in on reorganization notifiaction.");
+            return;
+        }
+    };
+
+    let new_height: i32 = match serde_json::from_value(params[3].clone()) {
+        Ok(e) => e,
+
+        Err(e) => {
+            warn!(
+                "Error unmarshalling new height params in reorganization notification, error: {}",
+                e
+            );
+            return;
+        }
+    };
+
+    on_reorganization_callback(old_hash, old_height, new_hash, new_height)
+}
+
 pub(super) fn on_new_tickets(
     params: &Vec<serde_json::Value>,
     new_tickets_callback: fn(hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>),
@@ -296,23 +357,11 @@ pub(super) fn on_new_tickets(
         return;
     }
 
-    let block_sha_str: String = match serde_json::from_value(params[0].clone()) {
-        Ok(e) => e,
+    let hash = match crate::dcrjson::marshal_to_hash(params[0].clone()) {
+        Some(e) => e,
 
-        Err(e) => {
-            warn!(
-                "Error unmarshalling block SHA params in on new tickets notification, error: {}",
-                e
-            );
-            return;
-        }
-    };
-
-    let sha_hash = match crate::chaincfg::chainhash::Hash::new_from_str(&block_sha_str) {
-        Ok(e) => e,
-
-        Err(e) => {
-            warn!("Error converting sha string to chain hash in on new ticket notification, error: {}", e);
+        None => {
+            warn!("Error marshalling to hash in on new ticket notification.");
             return;
         }
     };
@@ -368,7 +417,7 @@ pub(super) fn on_new_tickets(
         }
     }
 
-    new_tickets_callback(sha_hash, block_height, stake_diff, tickets)
+    new_tickets_callback(hash, block_height, stake_diff, tickets)
 }
 
 pub(super) fn on_work(
@@ -428,23 +477,11 @@ pub(super) fn on_tx_accepted(
         return;
     }
 
-    let tx_hash_string: String = match serde_json::from_value(params[0].clone()) {
-        Ok(e) => e,
+    let hash = match crate::dcrjson::marshal_to_hash(params[0].clone()) {
+        Some(e) => e,
 
-        Err(e) => {
-            warn!(
-                "Error unmarshalling hash string params in on transaction accepted notification, error: {}",
-                e
-            );
-            return;
-        }
-    };
-
-    let hash = match crate::chaincfg::chainhash::Hash::new_from_str(&tx_hash_string) {
-        Ok(e) => e,
-
-        Err(e) => {
-            warn!("Error converting hash string to chain hash in on transaction accepted notification, error: {}", e);
+        None => {
+            warn!("Error marshalling value to hash in on transaction accepted");
             return;
         }
     };
@@ -489,19 +526,18 @@ pub(super) fn on_tx_accepted_verbose(
         return;
     }
 
-    let tx_details: crate::dcrjson::chain_command_result::TxRawResult = match serde_json::from_value(
-        params[0].clone(),
-    ) {
-        Ok(e) => e,
+    let tx_details: crate::dcrjson::chain_command_result::TxRawResult =
+        match serde_json::from_value(params[0].clone()) {
+            Ok(e) => e,
 
-        Err(e) => {
-            warn!(
-                "Error marshalling amount unit in on transaction accepted verbose notification, error: {}",
-                e
-            );
-            return;
-        }
-    };
+            Err(e) => {
+                warn!(
+                    "Error marshalling transaction accepted verbose notification, error: {}",
+                    e
+                );
+                return;
+            }
+        };
 
     on_tx_verbose_callback(tx_details);
 }
@@ -517,23 +553,11 @@ pub(super) fn on_stake_difficulty(
         return;
     }
 
-    let block_hash_string: String = match serde_json::from_value(params[0].clone()) {
-        Ok(e) => e,
+    let hash = match crate::dcrjson::marshal_to_hash(params[0].clone()) {
+        Some(e) => e,
 
-        Err(e) => {
-            warn!(
-                "Error unmarshalling hash string params in on stake difficulty notification, error: {}",
-                e
-            );
-            return;
-        }
-    };
-
-    let hash = match crate::chaincfg::chainhash::Hash::new_from_str(&block_hash_string) {
-        Ok(e) => e,
-
-        Err(e) => {
-            warn!("Error converting hash string to chain hash on stake difficulty notification, error: {}", e);
+        None => {
+            warn!("Error marshalling hash on stake difficulty notification");
             return;
         }
     };
