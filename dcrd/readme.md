@@ -11,8 +11,8 @@ library for Rust based on [Dcrd](https://github.com/decred/dcrd) with true async
         - [x] Notify On Transaction Accepted
         - [x] Notify On Transaction Accepted Verbose
         - [x] Notify On Stake Difficulty
+        - [x] Notify On Reorganization
         - [ ] Notify On Relevant Transaction Spent
-        - [ ] Notify On Reorganization
         - [ ] Notify On Spent And Missed Tickets
         - [ ] Notify On New Tickets
 
