@@ -1,6 +1,5 @@
 [workspace]
 
 members = [
-    "dcrd",
-    "politeia"
+    "dcrd"
 ]
