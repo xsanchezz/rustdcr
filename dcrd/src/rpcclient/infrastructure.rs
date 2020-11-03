@@ -236,15 +236,13 @@ pub(super) async fn handle_websocket_in(
         while let Some(message) = websocket_read.next().await {
             match message {
                 // Send received message to message handler function.
-                Ok(message) => match send_rcvd_websocket_msg.send(message) {
-                    Ok(_) => {}
-
-                    Err(e) => {
+                Ok(message) => {
+                    if let Err(e) = send_rcvd_websocket_msg.send(message) {
                         // On error indicates send_rcvd_websocket_msg channel is closed which calls for handle_websocket_in exit.
                         warn!("error sending received websocket message to message handler, error: {}. Closing websocket connection", e);
                         return;
                     }
-                },
+                }
 
                 Err(e) => {
                     match e {
@@ -265,15 +263,13 @@ pub(super) async fn handle_websocket_in(
         info!("reconnecting websocket");
 
         // Fall through for reconnection.
-        match signal_ws_reconnect.send(()).await {
-            Ok(_) => {}
-
-            // ToDo: treat error here
-            Err(_) => {
-                warn!("websocket reconnection failed. Closing websocket connection.");
-                return;
-            }
-        };
+        if let Err(e) = signal_ws_reconnect.send(()).await {
+            warn!(
+                "websocket reconnection failed, error: {}. Closing websocket connection.",
+                e
+            );
+            return;
+        }
 
         let ws = match websocket_read_new.recv().await {
             Some(ws) => ws,
@@ -361,7 +357,6 @@ pub(super) async fn handle_received_message(
 
             Message::Pong(_) => {
                 info!("Received pong message from server");
-
                 continue;
             }
 
@@ -610,44 +605,39 @@ pub(super) async fn ws_reconnect_handler(
                     iter.0, iter.1
                 );
 
-                match ws_writer.send(Message::Text(data)).await {
-                    Ok(_) => trace!(
-                        "Registering notification on reconnection, notification: {:?}",
-                        iter
-                    ),
+                trace!(
+                    "Registering notification on reconnection, notification: {}",
+                    iter.0
+                );
 
-                    Err(e) => warn!(
+                if let Err(e) = ws_writer.send(Message::Text(data)).await {
+                    warn!(
                         "Error registering notification on reconnection, error: {}",
                         e
-                    ),
+                    );
                 }
             }
 
-            match websocket_read_new.send(ws_rcv).await {
-                Ok(_) => {} // Fallthrough to ws_writer_new send.
+            trace!("Reconnection websocket message reader");
 
-                // It is assumed websocket channels are closed, so handler is closed.
-                Err(e) => {
-                    warn!(
-                        "websocket reconnect handler closed on sending new websocket_read channel, error: {}",
-                        e
-                    );
-                    break;
-                }
-            };
+            if let Err(e) = websocket_read_new.send(ws_rcv).await {
+                warn!(
+                    "websocket reconnect handler closed on sending new websocket_read channel, error: {}",
+                    e
+                );
+                break;
+            }
 
-            match ws_writer_new.send(ws_writer).await {
-                Ok(_) => {}
+            trace!("Reconnection websocket message writer");
 
-                Err(e) => {
-                    warn!(
-                        "websocket reconnect handler closed on sending new ws_writer send, error: {}",
-                        e
-                    );
+            if let Err(e) = ws_writer_new.send(ws_writer).await {
+                warn!(
+                    "websocket reconnect handler closed on sending new ws_writer send, error: {}",
+                    e
+                );
 
-                    break;
-                }
-            };
+                break;
+            }
 
             break;
         }
@@ -795,15 +785,11 @@ pub(super) async fn handle_post_methods(
 ) {
     let on_error =
         |err: String, response: JsonResponse, mut channel: mpsc::Sender<JsonResponse>| async move {
-            match channel.send(response).await {
-                Ok(_) => {}
-
-                Err(e) => {
-                    warn!(
+            if let Err(e) = channel.send(response).await {
+                warn!(
                     "({}) Receiving channel closed abruptly on sending error message, error: {}",
                     err, e
                 );
-                }
             }
         };
 
@@ -824,6 +810,7 @@ pub(super) async fn handle_post_methods(
             .basic_auth(&config.user, Some(&config.password))
             .body(cmd.rpc_message)
             .build();
+
         drop(config);
 
         let request = match wrapped_request {
@@ -892,13 +879,12 @@ pub(super) async fn handle_post_methods(
         };
 
         let mut channel = cmd.user_channel;
-        match channel.send(json_response).await {
-            Ok(_) => {}
 
-            Err(e) => warn!(
+        if let Err(e) = channel.send(json_response).await {
+            warn!(
                 "Receiving request channel closed abruptly on HTTP post mode, error: {}",
                 e
-            ),
-        };
+            )
+        }
     }
 }

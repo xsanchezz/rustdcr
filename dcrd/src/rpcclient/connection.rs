@@ -138,13 +138,11 @@ impl ConnConfig {
         match stream {
             Ok(mut stream) => {
                 if self.proxy_host.is_some() {
-                    match self
+                    if let Err(e) = self
                         .dial_connection(&mut buffered_header, &mut stream)
                         .await
                     {
-                        Ok(_) => {}
-
-                        Err(e) => return Err(e),
+                        return Err(e);
                     }
                 }
 
