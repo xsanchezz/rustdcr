@@ -15,6 +15,11 @@ async fn main() {
 
         None => PathBuf::new().join("."),
     };
+
+    if !app_dir.exists() {
+        panic!("Path does not exist")
+    }
+
     app_dir.push("rpc.cert");
 
     let certs = fs::read_to_string(app_dir).unwrap();
