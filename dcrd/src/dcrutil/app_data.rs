@@ -37,9 +37,9 @@ use std::{
 ///   Plan 9: $home/myapp
 pub fn get_app_data_dir(app_name: &str, roaming: bool) -> Option<PathBuf> {
     let dir_data = DirData {
-        app_name: app_name,
+        app_name,
         os: env::consts::OS,
-        roaming: roaming,
+        roaming,
     };
 
     dir_data.get_app_data_dir()
@@ -54,36 +54,36 @@ struct DirData<'a> {
 impl<'a> DirData<'a> {
     /// fetch dcrd app directory.
     fn get_app_data_dir(mut self) -> Option<PathBuf> {
-        if self.app_name == "" || self.app_name == "." {
+        if self.app_name.is_empty() || self.app_name == "." {
             return None;
         }
 
         // Strip "." if caller prepend a period to path.
-        self.app_name.strip_prefix(".").map(|value| {
-            self.app_name = value;
-        });
+        if let Some(e) = self.app_name.strip_prefix('.') {
+            self.app_name = e;
+        }
 
         // Get the OS specific home directory.
         match dirs::home_dir() {
-            Some(dir) => {
-                return self.retrieve_from_os(&dir);
-            }
+            Some(dir) => self.retrieve_from_os(&dir),
 
             None => match env::var("HOME") {
-                Ok(val) => return self.retrieve_from_os(&val.into()),
+                Ok(val) => self.retrieve_from_os(Path::new(&val)),
 
-                _ => return None,
+                _ => None,
             },
         }
     }
 
     /// retrieves app patch using users os attributes.
-    fn retrieve_from_os(&self, home_dir: &PathBuf) -> Option<PathBuf> {
-        let app_name_upper =
-            String::from(self.app_name[..1].to_ascii_uppercase()).add(&self.app_name[1..]);
+    fn retrieve_from_os(&self, home_dir: &Path) -> Option<PathBuf> {
+        let app_name_upper = self.app_name[..1]
+            .to_ascii_uppercase()
+            .add(&self.app_name[1..]);
 
-        let app_name_lower =
-            String::from(self.app_name[..1].to_ascii_lowercase()).add(&self.app_name[1..]);
+        let app_name_lower = self.app_name[..1]
+            .to_ascii_lowercase()
+            .add(&self.app_name[1..]);
 
         match self.os {
             "windows" => {
@@ -94,27 +94,20 @@ impl<'a> DirData<'a> {
                 // to regular APPDATA if LOCALAPPDATA is not set.
                 //
                 // Since, it is optional to get path on LOCALAPPDATA or APPDATA, error is only captured on LOCALAPPDATA fail.
-                let mut app_data = String::new();
 
-                match env::var("LOCALAPPDATA") {
-                    Ok(local_app_data_val) => {
-                        app_data = local_app_data_val;
-                    }
+                if let Ok(mut app_data) = env::var("LOCALAPPDATA") {
+                    if app_data.is_empty() || self.roaming {
+                        match env::var("APPDATA") {
+                            Ok(val) => {
+                                app_data = val;
+                            }
 
-                    _ => {}
-                };
-
-                if app_data.is_empty() || self.roaming {
-                    match env::var("APPDATA") {
-                        Ok(val) => {
-                            app_data = val;
+                            _ => return None,
                         }
-
-                        _ => return None,
                     }
-                }
 
-                return Some(Path::new(&app_data).join(app_name_upper));
+                    return Some(Path::new(&app_data).join(app_name_upper));
+                };
             }
 
             "macos" => {
@@ -137,7 +130,7 @@ impl<'a> DirData<'a> {
             }
 
             _ => {
-                if !home_dir.as_os_str().is_empty() {
+                if home_dir.as_os_str().is_empty() {
                     return None;
                 }
 

@@ -150,12 +150,12 @@ pub struct ScriptPubKeyResult {
 impl Vin {
     /// Returns a bool to show if a Vin is a Coinbase one or not.
     pub fn is_coin_base(&self) -> bool {
-        self.coinbase.len() > 0
+        !self.coinbase.is_empty()
     }
 
     /// Returns a bool to show if a Vin is a StakeBase one or not.
     pub fn is_stake_base(&self) -> bool {
-        self.stakebase.len() > 0
+        !self.stakebase.is_empty()
     }
 
     /// Provides a custom Marshal method for Vin.
@@ -229,11 +229,11 @@ impl Vin {
         };
 
         match serde_json::to_vec(&tx) {
-            Ok(e) => return Ok(e),
+            Ok(e) => Ok(e),
 
             Err(e) => {
                 warn!("Error marshalling stakebase value, error: {}", e);
-                return Err(super::RpcServerError::Marshaller(e));
+                Err(super::RpcServerError::Marshaller(e))
             }
         }
     }

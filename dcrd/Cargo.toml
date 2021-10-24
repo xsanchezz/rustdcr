@@ -2,7 +2,7 @@
 name = "rustdcr"
 version = "0.1.0"
 authors = ["michael <utimichael9@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 [dev-dependencies]
 criterion = "0.3"

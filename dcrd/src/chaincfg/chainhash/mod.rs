@@ -4,9 +4,9 @@
 //! allows the specific hash algorithm to be abstracted.
 
 pub mod constants;
-mod errors;
+mod error;
 mod hash;
-mod tests;
+mod test;
 
-pub use errors::ChainHashErrors;
+pub use error::ChainHashErrors;
 pub use hash::Hash;

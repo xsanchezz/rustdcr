@@ -34,19 +34,17 @@ impl Future for NotificationsFuture {
                         return Poll::Ready(Ok(()));
                     }
 
-                    return Poll::Ready(Err(get_error_value(msg.error)));
+                    Poll::Ready(Err(get_error_value(msg.error)))
                 }
 
                 None => {
                     warn!("Server sent an empty response");
-                    return Poll::Ready(Err(super::RpcServerError::EmptyResponse));
+                    Poll::Ready(Err(super::RpcServerError::EmptyResponse))
                 }
             },
 
-            Poll::Pending => {
-                return Poll::Pending;
-            }
-        };
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
@@ -80,19 +78,17 @@ impl Future for GetBlockchainInfoFuture {
                         }
                     };
 
-                    return Poll::Ready(Ok(val));
+                    Poll::Ready(Ok(val))
                 }
 
                 None => {
                     warn!("Server sent an empty response");
-                    return Poll::Ready(Err(super::RpcServerError::EmptyResponse));
+                    Poll::Ready(Err(super::RpcServerError::EmptyResponse))
                 }
             },
 
-            Poll::Pending => {
-                return Poll::Pending;
-            }
-        };
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
@@ -125,19 +121,17 @@ impl Future for GetBlockCountFuture {
                         }
                     };
 
-                    return Poll::Ready(Ok(val));
+                    Poll::Ready(Ok(val))
                 }
 
                 None => {
                     warn!("Server sent an empty response");
-                    return Poll::Ready(Err(super::RpcServerError::EmptyResponse));
+                    Poll::Ready(Err(super::RpcServerError::EmptyResponse))
                 }
             },
 
-            Poll::Pending => {
-                return Poll::Pending;
-            }
-        };
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
@@ -171,29 +165,26 @@ impl Future for GetBlockHashFuture {
                     };
 
                     match crate::chaincfg::chainhash::Hash::new_from_str(&hash) {
-                        Ok(e) => {
-                            return Poll::Ready(Ok(e));
-                        }
+                        Ok(e) => Poll::Ready(Ok(e)),
 
                         Err(e) => {
                             warn!("Invalid hash bytes from server, error: {}.", e);
-                            return Poll::Ready(Err(super::RpcServerError::InvalidResponse(
-                                format!("{}", e),
-                            )));
+                            Poll::Ready(Err(super::RpcServerError::InvalidResponse(format!(
+                                "{}",
+                                e
+                            ))))
                         }
-                    };
+                    }
                 }
 
                 None => {
                     warn!("Server sent an empty response");
-                    return Poll::Ready(Err(super::RpcServerError::EmptyResponse));
+                    Poll::Ready(Err(super::RpcServerError::EmptyResponse))
                 }
             },
 
-            Poll::Pending => {
-                return Poll::Pending;
-            }
-        };
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
@@ -207,5 +198,5 @@ fn get_error_value(error: serde_json::Value) -> super::RpcServerError {
         }
     };
 
-    return super::RpcServerError::ServerError(error_value);
+    super::RpcServerError::ServerError(error_value)
 }

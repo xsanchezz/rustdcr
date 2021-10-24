@@ -9,13 +9,11 @@ impl Hash {
     // Returns the Hash as the hexadecimal string of the byte-reversed
     // hash.
     pub fn string(&self) -> Result<String, ChainHashErrors> {
-        let mut hash = self.0.clone();
+        let mut hash = self.0;
 
         let mut i = 0;
         while i < HASH_SIZE / 2 {
-            let i_val = hash[i];
-            hash[i] = hash[HASH_SIZE - 1 - i];
-            hash[HASH_SIZE - 1 - i] = i_val;
+            hash.swap(i, HASH_SIZE - 1 - i);
             i += 1;
         }
 
@@ -25,7 +23,7 @@ impl Hash {
     }
 
     pub fn clone_hash(&self) -> Hash {
-        Self(self.bytes().clone())
+        Self(*self.bytes())
     }
 
     pub fn bytes(&self) -> &[u8; HASH_SIZE] {
@@ -51,8 +49,13 @@ impl Hash {
     }
 
     /// Get length of hash.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// Check if `Hash` is empty
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     /// Returns true if target is the same as hash.

@@ -1,10 +1,12 @@
+#![allow(dead_code)]
+
 pub mod chain_command_result;
-mod errors;
-pub use errors::RpcServerError;
-pub mod future_types;
-pub(crate) mod rpc_types;
+mod error;
+pub mod future_type;
+pub(crate) mod rpc_type;
 
 use crate::chaincfg::chainhash::Hash;
+pub use error::RpcServerError;
 use log::warn;
 
 /// Parse hex string to bytes
@@ -23,13 +25,13 @@ pub(crate) fn parse_hex_parameters(value: &serde_json::Value) -> Option<Vec<u8>>
     };
 
     match ring::test::from_hex(s.as_str()) {
-        Ok(v) => return Some(v),
+        Ok(v) => Some(v),
 
         Err(e) => {
             warn!("Error converting unmarshalled string to hex, error: {}", e);
-            return None;
+            None
         }
-    };
+    }
 }
 
 pub(crate) fn marshal_to_hash(value: serde_json::Value) -> Option<Hash> {

@@ -2,6 +2,8 @@
 //! Decred JSON RPC notification commands. Also contains standard commands to interact with lower versions such
 //! as bitcoind.
 
+#![allow(dead_code)]
+
 /// Notifies that a block has been connected.
 pub(crate) const NOTIFICATION_METHOD_BLOCK_CONNECTED: &str = "blockconnected";
 /// Notifies that a block has been disconnected.
