@@ -25,8 +25,8 @@ pub struct JsonResponse {
 #[derive(serde::Deserialize, serde::Serialize, Default, Debug)]
 #[serde(default)]
 pub struct RpcError {
-    code: i64,
-    message: String,
+    pub code: i64,
+    pub message: String,
 }
 
 /// Provides an overview of an agenda in a consensus deployment.
@@ -70,9 +70,9 @@ pub struct BlockchainInfo {
 #[derive(serde::Deserialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct TxRawResult {
-    pub hex: String,
+    pub hex: Option<String>,
     #[serde(rename = "txid")]
-    pub tx_id: String,
+    pub tx_id: Option<String>,
     pub version: i32,
     #[serde(rename = "locktime")]
     pub lock_time: u32,
@@ -86,39 +86,39 @@ pub struct TxRawResult {
     #[serde(rename = "blockindex")]
     pub block_index: u32,
     pub confirmations: i64,
-    time: i64,
-    blocktime: i64,
+    pub time: i64,
+    pub blocktime: i64,
 }
 
 /// Vin models parts of the tx data. It is defined separately since getrawtransaction, decoderawtransaction, and searchrawtransaction use the same structure.
-#[derive(serde::Deserialize, Default, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct Vin {
-    coinbase: String,
-    stakebase: String,
+    pub coinbase: String,
+    pub stakebase: String,
     #[serde(rename = "txid")]
-    tx_id: String,
-    vout: u32,
-    tree: i8,
-    sequence: u32,
+    pub tx_id: String,
+    pub vout: u32,
+    pub tree: i8,
+    pub sequence: u32,
     #[serde(rename = "amountin")]
-    amount_in: f64,
+    pub amount_in: f64,
     #[serde(rename = "blockheight")]
-    block_height: u32,
+    pub block_height: u32,
     #[serde(rename = "blockindex")]
-    block_index: u32,
+    pub block_index: u32,
     #[serde(rename = "scriptSig")]
-    script_sig: ScriptSig,
+    pub script_sig: Option<ScriptSig>,
 }
 
 /// ScriptSig models a signature script.  It is defined separately since it only
 /// applies to non-coinbase.  Therefore the field in the Vin structure needs
 /// to be a pointer.
-#[derive(serde::Deserialize, Default, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct ScriptSig {
-    asm: String,
-    hex: String,
+    pub asm: String,
+    pub hex: String,
 }
 
 /// Vout models parts of the tx data.  It is defined separately since both
@@ -136,15 +136,15 @@ pub struct Vout {
 #[derive(serde::Deserialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct ScriptPubKeyResult {
-    asm: String,
-    hex: String,
+    pub asm: String,
+    pub hex: String,
     #[serde(rename = "reqSigs")]
-    req_sigs: i32,
+    pub req_sigs: i32,
     #[serde(rename = "type")]
-    script_type: String,
-    addresses: Vec<String>,
+    pub script_type: String,
+    pub addresses: Vec<String>,
     #[serde(rename = "commitamt")]
-    commit_amount: f64,
+    pub commit_amount: f64,
 }
 
 impl Vin {

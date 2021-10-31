@@ -21,7 +21,6 @@ path = "benches/lib.rs"
 [dependencies]
 # Required Dependencies.
 base64 = "0.12.3"
-bitcoin_hashes = "0.10.0"
 tokio = { version = "^0.2", features = ["full"] }
 log = "^0.4.11"
 ring = "^0.16"
@@ -31,5 +30,6 @@ hex = "^0.4"
 dirs = { version = "^3.0.1", optional = true }
 
 # Rpc Client Dependencies.
-serde_json = "*"
-serde = { version = "^1.0", features = ["derive"] }
+bitcoincore-rpc-json = "0.14.0"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }

@@ -1,4 +1,4 @@
-//! RPC Types.
+//! RPC Commands.
 //! Decred JSON RPC notification commands. Also contains standard commands to interact with lower versions such
 //! as bitcoind.
 

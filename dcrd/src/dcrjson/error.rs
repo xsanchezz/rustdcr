@@ -10,7 +10,7 @@ pub enum RpcServerError {
     /// Invalid response
     InvalidResponse(String),
     /// Error returned to client by server.
-    ServerError(super::chain_command_result::RpcError),
+    ServerError(super::types::RpcError),
 }
 
 impl std::fmt::Display for RpcServerError {

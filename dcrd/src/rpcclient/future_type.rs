@@ -3,8 +3,8 @@
 
 use {
     super::{
-        chain_command_result,
-        chain_command_result::{JsonResponse, RpcError},
+        types,
+        types::{JsonResponse, RpcError},
     },
     core::future::Future,
     core::pin::Pin,
@@ -54,12 +54,12 @@ pub struct GetBlockchainInfoFuture {
 }
 
 impl Future for GetBlockchainInfoFuture {
-    type Output = Result<chain_command_result::BlockchainInfo, super::RpcServerError>;
+    type Output = Result<types::BlockchainInfo, super::RpcServerError>;
 
     fn poll(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<chain_command_result::BlockchainInfo, super::RpcServerError>> {
+    ) -> Poll<Result<types::BlockchainInfo, super::RpcServerError>> {
         match self.message.poll_recv(cx) {
             Poll::Ready(message) => match message {
                 Some(msg) => {

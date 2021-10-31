@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
-pub mod chain_command_result;
+pub(crate) mod commands;
 mod error;
-pub mod future_type;
-pub(crate) mod rpc_type;
+pub mod types;
+mod types_test;
 
 use crate::chaincfg::chainhash::Hash;
 pub use error::RpcServerError;
