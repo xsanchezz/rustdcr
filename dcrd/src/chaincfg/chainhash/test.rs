@@ -107,7 +107,7 @@ mod chain_hash {
     struct Test {
         pub hash_str: String,
         pub want: [u8; HASH_SIZE],
-        pub err: Result<(), crate::chaincfg::chainhash::error::ChainHashErrors>,
+        pub err: Result<(), crate::chaincfg::chainhash::error::ChainHashError>,
     }
 
     #[test]
@@ -153,19 +153,19 @@ mod chain_hash {
                     "01234567890123456789012345678901234567890123456789012345678912345",
                 ),
                 want: [0; HASH_SIZE],
-                err: Err(crate::chaincfg::chainhash::ChainHashErrors::HashStringSize),
+                err: Err(crate::chaincfg::chainhash::ChainHashError::HashStringSize),
             },
             Test {
                 hash_str: String::from("abcdefg"),
                 want: [0; HASH_SIZE],
-                err: Err(crate::chaincfg::chainhash::ChainHashErrors::HexDecode(
+                err: Err(crate::chaincfg::chainhash::ChainHashError::HexDecode(
                     hex::FromHexError::InvalidHexCharacter { c: 'g', index: 7 },
                 )),
             },
             Test {
                 hash_str: String::from("banana"),
                 want: [0; HASH_SIZE],
-                err: Err(crate::chaincfg::chainhash::ChainHashErrors::HexDecode(
+                err: Err(crate::chaincfg::chainhash::ChainHashError::HexDecode(
                     // ToDo: There is an error here, we should instead have index as 2.
                     // See https://github.com/KokaKiwi/rust-hex/issues/49.
                     hex::FromHexError::InvalidHexCharacter { c: 'n', index: 2 },

@@ -8,5 +8,5 @@ mod error;
 mod hash;
 mod test;
 
-pub use error::ChainHashErrors;
+pub use error::ChainHashError;
 pub use hash::Hash;

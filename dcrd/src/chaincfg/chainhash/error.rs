@@ -1,5 +1,5 @@
 /// Contains all chain hash errors.
-pub enum ChainHashErrors {
+pub enum ChainHashError {
     /// Describes an error where the caller specified a hash string that has too many characters.
     HashStringSize,
 
@@ -12,47 +12,47 @@ pub enum ChainHashErrors {
     HexDecode(hex::FromHexError),
 }
 
-impl std::fmt::Display for ChainHashErrors {
+impl std::fmt::Display for ChainHashError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            ChainHashErrors::HashStringSize => write!(
+            ChainHashError::HashStringSize => write!(
                 f,
                 "Max hash string length is {} bytes",
                 super::constants::MAX_HASH_STRING_SIZE
             ),
-            ChainHashErrors::HashSize => write!(
+            ChainHashError::HashSize => write!(
                 f,
                 "Max hash length is {} bytes",
                 super::constants::HASH_SIZE
             ),
-            ChainHashErrors::HashToString(e) => {
+            ChainHashError::HashToString(e) => {
                 write!(f, "Invalid hex to string conversion, error: {}", e)
             }
-            ChainHashErrors::HexDecode(e) => write!(f, "Error decoding hex, error: {}", e),
+            ChainHashError::HexDecode(e) => write!(f, "Error decoding hex, error: {}", e),
         }
     }
 }
 
-impl std::fmt::Debug for ChainHashErrors {
+impl std::fmt::Debug for ChainHashError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
-            ChainHashErrors::HashStringSize => write!(
+            ChainHashError::HashStringSize => write!(
                 f,
-                "ChainHashErrors(max hash string length is {} bytes)",
+                "ChainHashError(max hash string length is {} bytes)",
                 super::constants::HASH_SIZE
             ),
-            ChainHashErrors::HashSize => write!(
+            ChainHashError::HashSize => write!(
                 f,
-                "ChainHashErrors(Max hash length is {} bytes)",
+                "ChainHashError(Max hash length is {} bytes)",
                 super::constants::HASH_SIZE
             ),
-            ChainHashErrors::HashToString(e) => write!(
+            ChainHashError::HashToString(e) => write!(
                 f,
-                "ChainHashErrors(Invalid hex to string conversion, error: {})",
+                "ChainHashError(Invalid hex to string conversion, error: {})",
                 e
             ),
-            ChainHashErrors::HexDecode(e) => {
-                write!(f, "ChainHashErrors(Error decoding hex, error: {})", e)
+            ChainHashError::HexDecode(e) => {
+                write!(f, "ChainHashError(Error decoding hex, error: {})", e)
             }
         }
     }
