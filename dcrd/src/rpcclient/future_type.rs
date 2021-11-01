@@ -2,9 +2,10 @@
 //! Contains all asynchronous command structures.
 
 use {
-    super::{
+    crate::dcrjson::{
         types,
         types::{JsonResponse, RpcError},
+        RpcServerError,
     },
     core::future::Future,
     core::pin::Pin,
@@ -19,12 +20,9 @@ pub struct NotificationsFuture {
 }
 
 impl Future for NotificationsFuture {
-    type Output = Result<(), super::RpcServerError>;
+    type Output = Result<(), RpcServerError>;
 
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<(), super::RpcServerError>> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), RpcServerError>> {
         match self.message.poll_recv(cx) {
             Poll::Ready(message) => match message {
                 Some(msg) => {
@@ -39,7 +37,7 @@ impl Future for NotificationsFuture {
 
                 None => {
                     warn!("Server sent an empty response");
-                    Poll::Ready(Err(super::RpcServerError::EmptyResponse))
+                    Poll::Ready(Err(RpcServerError::EmptyResponse))
                 }
             },
 
@@ -54,12 +52,12 @@ pub struct GetBlockchainInfoFuture {
 }
 
 impl Future for GetBlockchainInfoFuture {
-    type Output = Result<types::BlockchainInfo, super::RpcServerError>;
+    type Output = Result<types::BlockchainInfo, RpcServerError>;
 
     fn poll(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<types::BlockchainInfo, super::RpcServerError>> {
+    ) -> Poll<Result<types::BlockchainInfo, RpcServerError>> {
         match self.message.poll_recv(cx) {
             Poll::Ready(message) => match message {
                 Some(msg) => {
@@ -74,7 +72,7 @@ impl Future for GetBlockchainInfoFuture {
 
                         Err(e) => {
                             warn!("Error marshalling Get Blockchain Info result.");
-                            return Poll::Ready(Err(super::RpcServerError::Marshaller(e)));
+                            return Poll::Ready(Err(RpcServerError::Marshaller(e)));
                         }
                     };
 
@@ -83,7 +81,7 @@ impl Future for GetBlockchainInfoFuture {
 
                 None => {
                     warn!("Server sent an empty response");
-                    Poll::Ready(Err(super::RpcServerError::EmptyResponse))
+                    Poll::Ready(Err(RpcServerError::EmptyResponse))
                 }
             },
 
@@ -97,12 +95,9 @@ pub struct GetBlockCountFuture {
 }
 
 impl Future for GetBlockCountFuture {
-    type Output = Result<i64, super::RpcServerError>;
+    type Output = Result<i64, RpcServerError>;
 
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<i64, super::RpcServerError>> {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<i64, RpcServerError>> {
         match self.message.poll_recv(cx) {
             Poll::Ready(message) => match message {
                 Some(msg) => {
@@ -117,7 +112,7 @@ impl Future for GetBlockCountFuture {
 
                         Err(e) => {
                             warn!("Error marshalling Get Block Count result.");
-                            return Poll::Ready(Err(super::RpcServerError::Marshaller(e)));
+                            return Poll::Ready(Err(RpcServerError::Marshaller(e)));
                         }
                     };
 
@@ -126,7 +121,7 @@ impl Future for GetBlockCountFuture {
 
                 None => {
                     warn!("Server sent an empty response");
-                    Poll::Ready(Err(super::RpcServerError::EmptyResponse))
+                    Poll::Ready(Err(RpcServerError::EmptyResponse))
                 }
             },
 
@@ -140,12 +135,12 @@ pub struct GetBlockHashFuture {
 }
 
 impl Future for GetBlockHashFuture {
-    type Output = Result<crate::chaincfg::chainhash::Hash, super::RpcServerError>;
+    type Output = Result<crate::chaincfg::chainhash::Hash, RpcServerError>;
 
     fn poll(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-    ) -> Poll<Result<crate::chaincfg::chainhash::Hash, super::RpcServerError>> {
+    ) -> Poll<Result<crate::chaincfg::chainhash::Hash, RpcServerError>> {
         match self.message.poll_recv(cx) {
             Poll::Ready(message) => match message {
                 Some(msg) => {
@@ -160,7 +155,7 @@ impl Future for GetBlockHashFuture {
 
                         Err(e) => {
                             warn!("Error marshalling Get Block Count result.");
-                            return Poll::Ready(Err(super::RpcServerError::Marshaller(e)));
+                            return Poll::Ready(Err(RpcServerError::Marshaller(e)));
                         }
                     };
 
@@ -169,17 +164,14 @@ impl Future for GetBlockHashFuture {
 
                         Err(e) => {
                             warn!("Invalid hash bytes from server, error: {}.", e);
-                            Poll::Ready(Err(super::RpcServerError::InvalidResponse(format!(
-                                "{}",
-                                e
-                            ))))
+                            Poll::Ready(Err(RpcServerError::InvalidResponse(format!("{}", e))))
                         }
                     }
                 }
 
                 None => {
                     warn!("Server sent an empty response");
-                    Poll::Ready(Err(super::RpcServerError::EmptyResponse))
+                    Poll::Ready(Err(RpcServerError::EmptyResponse))
                 }
             },
 
@@ -188,15 +180,15 @@ impl Future for GetBlockHashFuture {
     }
 }
 
-fn get_error_value(error: serde_json::Value) -> super::RpcServerError {
+fn get_error_value(error: serde_json::Value) -> RpcServerError {
     let error_value: RpcError = match serde_json::from_value(error) {
         Ok(val) => val,
 
         Err(e) => {
             warn!("Error marshalling error value.");
-            return super::RpcServerError::Marshaller(e);
+            return RpcServerError::Marshaller(e);
         }
     };
 
-    super::RpcServerError::ServerError(error_value)
+    RpcServerError::ServerError(error_value)
 }
