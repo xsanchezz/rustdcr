@@ -1,164 +1,53 @@
-// /// RPC client errors
-// pub enum RpcClientError {
-//     /// On json marshalling error.
-//     Marshaller(serde_json::Error),
+//! Contains all RPC client errors.
+use {thiserror::Error, tokio_native_tls::native_tls};
+/// RPC client errors
+#[derive(Error, Debug)]
+pub enum RpcClientError {
+    /// On json marshalling error.
+    #[error("marshaller error: {0}")]
+    Marshaller(serde_json::Error),
 
-//     /// Unregisted on server notification callback.
-//     UnregisteredNotification(String),
-//     /// Invalid authentication to RPC.
-//     RpcAuthenticationRequest,
-//     /// Invalid tcp connection to RPC server.
-//     TcpStream(std::io::Error),
-//     /// Invalid tls cerificate error on websocket.
-//     WsTlsCertificate(native_tls::Error),
-//     /// Invalid tls connection to Server.
-//     TlsHandshake(native_tls::Error),
-//     /// Invalid tls connection to RPC server.
-//     TlsStream(native_tls::Error),
-//     /// Invalid rpc open command.
-//     RpcHandshake(tokio_tungstenite::tungstenite::Error),
-//     /// Invalid proxy connection
-//     ProxyConnection,
-//     /// Failed to set proxy authentication.
-//     ProxyAuthentication(std::io::Error),
-//     /// Proxy server failed to tunnel RPC server with status code.
-//     RpcProxyStatus(Option<u16>),
-//     /// Error parsing response from server.
-//     RpcProxyResponseParse(httparse::Error),
-//     /// Websocket RPC disconnection from server.
-//     RpcDisconnected,
+    /// Unregisted on server notification callback.
+    #[error("unregistered notification callback, type: {0}")]
+    UnregisteredNotification(String),
+    /// Invalid authentication to RPC.
+    #[error("rpc authentication error")]
+    RpcAuthenticationRequest,
+    /// Invalid tcp connection to RPC server.
+    #[error("tcp stream error: {0}")]
+    TcpStream(std::io::Error),
+    /// Invalid tls cerificate error on websocket.
+    #[error("websocket tls certificate error: {0}")]
+    WsTlsCertificate(native_tls::Error),
+    /// Invalid tls connection to Server.
+    #[error("tls handshake error: {0}")]
+    TlsHandshake(native_tls::Error),
+    /// Invalid tls connection to RPC server.
+    #[error("tls stream error: {0}")]
+    TlsStream(native_tls::Error),
+    /// Invalid rpc open command.
+    #[error("rpc handshake error: {0}")]
+    RpcHandshake(tokio_tungstenite::tungstenite::Error),
+    /// Invalid proxy connection
+    #[error("invalid proxy connection")]
+    ProxyConnection,
+    /// Failed to set proxy authentication.
+    #[error("proxy authentication request error: {0}")]
+    ProxyAuthentication(std::io::Error),
+    /// Proxy server failed to tunnel RPC server with status code.
+    #[error("rpc proxy http status error: {0:?}")]
+    RpcProxyStatus(Option<u16>),
+    /// Error parsing response from server.
+    #[error("rpc proxied reponse error: {0}")]
+    RpcProxyResponseParse(httparse::Error),
+    /// Websocket RPC disconnection from server.
+    #[error("rpc client disconnected")]
+    RpcDisconnected,
 
-//     /// Error setting http header
-//     HttpHeader(reqwest::header::InvalidHeaderValue),
-//     /// Invalid http handshake to server.
-//     HttpHandshake(reqwest::Error),
-//     /// Invalid tls cerificate error on HTTP.
-//     HttpTlsCertificate(reqwest::Error),
-
-//     /// Websocket already connected to server.
-//     WebsocketAlreadyConnected,
-//     /// Client enabled http post mode
-//     ClientNotConnected,
-// }
-
-// impl std::fmt::Display for RpcClientError {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match *self {
-//             RpcClientError::Marshaller(ref err) => write!(f, "Marshaller error: {}.", err),
-//             RpcClientError::UnregisteredNotification(ref e) => {
-//                 write!(f, "Unregistered notification callback, type: {}", e)
-//             }
-//             RpcClientError::RpcAuthenticationRequest => write!(f, "RPC authentication error."),
-//             RpcClientError::TcpStream(ref err) => write!(f, "Tcp stream error: {}.", err),
-//             RpcClientError::WsTlsCertificate(ref err) => {
-//                 write!(f, "Websocket tls certificate error: {}.", err)
-//             }
-//             RpcClientError::TlsHandshake(ref err) => write!(f, "Tls handshake error: {}.", err),
-//             RpcClientError::TlsStream(ref err) => write!(f, "Tls stream error: {}.", err),
-//             RpcClientError::RpcHandshake(ref err) => write!(f, "RPC handshake error: {}.", err),
-//             RpcClientError::ProxyAuthentication(ref err) => {
-//                 write!(f, "Proxy authentication request error: {}.", err)
-//             }
-//             RpcClientError::ProxyConnection => write!(f, "Invalid proxy connection."),
-//             RpcClientError::RpcProxyStatus(e) => match e {
-//                 Some(e) => write!(f, "RPC proxy HTTP status error: {}.", e),
-//                 None => write!(f, "RPC proxy HTTP error."),
-//             },
-//             RpcClientError::RpcProxyResponseParse(ref err) => {
-//                 write!(f, "RPC proxied reponse error: {}", err)
-//             }
-//             RpcClientError::RpcDisconnected => write!(f, "RPC client disconnected."),
-//             RpcClientError::HttpHeader(ref e) => write!(
-//                 f,
-//                 "Failed to set HTTP header on HTTP Post mode, error: {}.",
-//                 e
-//             ),
-//             RpcClientError::HttpHandshake(ref e) => write!(
-//                 f,
-//                 "Error initiating HTTP Hanshake in HTTP Post mode, error: {}.",
-//                 e
-//             ),
-//             RpcClientError::HttpTlsCertificate(ref e) => {
-//                 write!(f, "HTTP certificate error: {}.", e)
-//             }
-//             RpcClientError::WebsocketAlreadyConnected => {
-//                 write!(f, "Websocket already connected to RPC server.")
-//             }
-//             RpcClientError::ClientNotConnected => {
-//                 write!(f, "Websocket disabled, client using HTTP Post mode.")
-//             }
-//         }
-//     }
-// }
-
-// impl std::fmt::Debug for RpcClientError {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match *self {
-//             RpcClientError::Marshaller(ref err) => {
-//                 write!(f, "RpcClientError(Marshaller error: {})", err)
-//             }
-//             RpcClientError::UnregisteredNotification(ref e) => write!(
-//                 f,
-//                 "RpcClientError(Unregistered notification callback, type: {})",
-//                 e
-//             ),
-//             RpcClientError::RpcAuthenticationRequest => {
-//                 write!(f, "RpcClientError(RPC authentication error)")
-//             }
-//             RpcClientError::TcpStream(ref err) => {
-//                 write!(f, "RpcClientError(Tcp stream error: {})", err)
-//             }
-//             RpcClientError::WsTlsCertificate(ref err) => write!(
-//                 f,
-//                 "RpcClientError(Websocket tls certificate error: {}.)",
-//                 err
-//             ),
-//             RpcClientError::TlsHandshake(ref err) => {
-//                 write!(f, "RpcClientError(Tls handshake error: {})", err)
-//             }
-//             RpcClientError::TlsStream(ref err) => {
-//                 write!(f, "RpcClientError(Tls stream error: {})", err)
-//             }
-//             RpcClientError::RpcHandshake(ref err) => {
-//                 write!(f, "RpcClientError(RPC handshake error: {})", err)
-//             }
-//             RpcClientError::ProxyAuthentication(ref err) => write!(
-//                 f,
-//                 "RpcClientError(Proxy authentication request error: {})",
-//                 err
-//             ),
-//             RpcClientError::ProxyConnection => {
-//                 write!(f, "RpcClientError(Invalid proxy connection)")
-//             }
-//             RpcClientError::RpcProxyStatus(ref e) => match e {
-//                 Some(e) => write!(f, "RpcClientError(RPC proxy HTTP status error: {})", e),
-//                 None => write!(f, "RpcClientError(RPC proxy HTTP error)"),
-//             },
-//             RpcClientError::RpcProxyResponseParse(ref err) => {
-//                 write!(f, "RpcClientError(RPC proxied reponse error: {})", err)
-//             }
-//             RpcClientError::RpcDisconnected => write!(f, "RpcClientError(RPC client disconnected)"),
-//             RpcClientError::HttpHeader(ref e) => write!(
-//                 f,
-//                 "RpcClientError(Failed to set HTTP header on HTTP Post mode, error: {})",
-//                 e
-//             ),
-//             RpcClientError::HttpHandshake(ref e) => write!(
-//                 f,
-//                 "RpcClientError(Error initiating HTTP Hanshake in HTTP Post mode, error: {})",
-//                 e
-//             ),
-//             RpcClientError::HttpTlsCertificate(ref e) => {
-//                 write!(f, "RpcClientError(HTTP certificate error: {})", e)
-//             }
-//             RpcClientError::WebsocketAlreadyConnected => write!(
-//                 f,
-//                 "RpcClientError(Websocket already connected to RPC server)"
-//             ),
-//             RpcClientError::ClientNotConnected => write!(
-//                 f,
-//                 "RpcClientError(Websocket disabled, client using HTTP Post mode)"
-//             ),
-//         }
-//     }
-// }
+    /// Websocket already connected to server.
+    #[error("websocket already connected to RPC server")]
+    WebsocketAlreadyConnected,
+    /// Client enabled http post mode
+    #[error("websocket disabled, client using HTTP Post mode")]
+    ClientNotConnected,
+}

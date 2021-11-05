@@ -1,5 +1,5 @@
 //! dcrd rpcclient.
-#![allow(missing_docs)]
+#![deny(dead_code)]
 pub mod chaincfg;
 pub mod dcrjson;
 pub mod dcrutil;
