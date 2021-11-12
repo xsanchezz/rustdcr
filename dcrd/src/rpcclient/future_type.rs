@@ -14,168 +14,124 @@ use {
     tokio::sync::mpsc,
 };
 
-/// Returns on-notification response from server.
-pub struct NotificationsFuture {
-    pub(crate) message: mpsc::Receiver<JsonResponse>,
+macro_rules! build_future {
+    ($struct_name:ident, $output:ty) => {
+        pub struct $struct_name {
+            pub(crate) message: mpsc::Receiver<JsonResponse>,
+        }
+
+        impl Future for $struct_name {
+            type Output = $output;
+
+            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                match self.message.poll_recv(cx) {
+                    Poll::Ready(message) => match message {
+                        Some(msg) => {
+                            let val = self.on_message(msg);
+                            Poll::Ready(val)
+                        }
+
+                        None => {
+                            warn!("Server sent an empty response");
+                            Poll::Ready(Err(RpcServerError::EmptyResponse))
+                        }
+                    },
+
+                    Poll::Pending => Poll::Pending,
+                }
+            }
+        }
+    };
 }
 
-impl Future for NotificationsFuture {
-    type Output = Result<(), RpcServerError>;
+build_future![NotificationsFuture, Result<(), RpcServerError>];
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), RpcServerError>> {
-        match self.message.poll_recv(cx) {
-            Poll::Ready(message) => match message {
-                Some(msg) => {
-                    trace!("Server sent a Get Blockchain Info result.");
-
-                    if msg.error.is_null() {
-                        return Poll::Ready(Ok(()));
-                    }
-
-                    Poll::Ready(Err(get_error_value(msg.error)))
-                }
-
-                None => {
-                    warn!("Server sent an empty response");
-                    Poll::Ready(Err(RpcServerError::EmptyResponse))
-                }
-            },
-
-            Poll::Pending => Poll::Pending,
+impl NotificationsFuture {
+    fn on_message(&self, message: JsonResponse) -> Result<(), RpcServerError> {
+        trace!("Server sent a Get Blockchain Info result.");
+        if message.error.is_null() {
+            return Ok(());
         }
+
+        Err(get_error_value(message.error))
     }
 }
 
-/// Returns GetBlockchainInfo response from server. This is an asynchronous type.
-pub struct GetBlockchainInfoFuture {
-    pub(crate) message: mpsc::Receiver<JsonResponse>,
-}
+build_future![GetBlockchainInfoFuture, Result<types::BlockchainInfo, RpcServerError>];
 
-impl Future for GetBlockchainInfoFuture {
-    type Output = Result<types::BlockchainInfo, RpcServerError>;
+impl GetBlockchainInfoFuture {
+    fn on_message(&self, message: JsonResponse) -> Result<types::BlockchainInfo, RpcServerError> {
+        trace!("Server sent a Get Blockchain Info result.");
 
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<types::BlockchainInfo, RpcServerError>> {
-        match self.message.poll_recv(cx) {
-            Poll::Ready(message) => match message {
-                Some(msg) => {
-                    trace!("Server sent a Get Blockchain Info result.");
-
-                    if !msg.error.is_null() {
-                        return Poll::Ready(Err(get_error_value(msg.error)));
-                    }
-
-                    let val = match serde_json::from_value(msg.result) {
-                        Ok(val) => val,
-
-                        Err(e) => {
-                            warn!("Error marshalling Get Blockchain Info result.");
-                            return Poll::Ready(Err(RpcServerError::Marshaller(e)));
-                        }
-                    };
-
-                    Poll::Ready(Ok(val))
-                }
-
-                None => {
-                    warn!("Server sent an empty response");
-                    Poll::Ready(Err(RpcServerError::EmptyResponse))
-                }
-            },
-
-            Poll::Pending => Poll::Pending,
+        if !message.error.is_null() {
+            return Err(get_error_value(message.error));
         }
+
+        let val = match serde_json::from_value(message.result) {
+            Ok(val) => val,
+
+            Err(e) => {
+                warn!("Error marshalling Get Blockchain Info result.");
+                return Err(RpcServerError::Marshaller(e));
+            }
+        };
+
+        Ok(val)
     }
 }
 
-pub struct GetBlockCountFuture {
-    pub(crate) message: mpsc::Receiver<JsonResponse>,
-}
+build_future![GetBlockCountFuture, Result<i64, RpcServerError>];
 
-impl Future for GetBlockCountFuture {
-    type Output = Result<i64, RpcServerError>;
+impl GetBlockCountFuture {
+    fn on_message(&self, message: JsonResponse) -> Result<i64, RpcServerError> {
+        trace!("Server sent a Get Blocks Count result.");
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<i64, RpcServerError>> {
-        match self.message.poll_recv(cx) {
-            Poll::Ready(message) => match message {
-                Some(msg) => {
-                    trace!("Server sent a Get Blocks Count result.");
-
-                    if !msg.error.is_null() {
-                        return Poll::Ready(Err(get_error_value(msg.error)));
-                    }
-
-                    let val = match serde_json::from_value(msg.result) {
-                        Ok(val) => val,
-
-                        Err(e) => {
-                            warn!("Error marshalling Get Block Count result.");
-                            return Poll::Ready(Err(RpcServerError::Marshaller(e)));
-                        }
-                    };
-
-                    Poll::Ready(Ok(val))
-                }
-
-                None => {
-                    warn!("Server sent an empty response");
-                    Poll::Ready(Err(RpcServerError::EmptyResponse))
-                }
-            },
-
-            Poll::Pending => Poll::Pending,
+        if !message.error.is_null() {
+            return Err(get_error_value(message.error));
         }
+
+        let val = match serde_json::from_value(message.result) {
+            Ok(val) => val,
+
+            Err(e) => {
+                warn!("Error marshalling Get Block Count result.");
+                return Err(RpcServerError::Marshaller(e));
+            }
+        };
+
+        Ok(val)
     }
 }
 
-pub struct GetBlockHashFuture {
-    pub(crate) message: mpsc::Receiver<JsonResponse>,
-}
+build_future![GetBlockHashFuture, Result<crate::chaincfg::chainhash::Hash, RpcServerError>];
 
-impl Future for GetBlockHashFuture {
-    type Output = Result<crate::chaincfg::chainhash::Hash, RpcServerError>;
+impl GetBlockHashFuture {
+    fn on_message(
+        &self,
+        message: JsonResponse,
+    ) -> Result<crate::chaincfg::chainhash::Hash, RpcServerError> {
+        trace!("Server sent a Get Blocks Count result.");
 
-    fn poll(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Result<crate::chaincfg::chainhash::Hash, RpcServerError>> {
-        match self.message.poll_recv(cx) {
-            Poll::Ready(message) => match message {
-                Some(msg) => {
-                    trace!("Server sent a Get Blocks Count result.");
+        if !message.error.is_null() {
+            return Err(get_error_value(message.error));
+        }
 
-                    if !msg.error.is_null() {
-                        return Poll::Ready(Err(get_error_value(msg.error)));
-                    }
+        let hash: String = match serde_json::from_value(message.result) {
+            Ok(val) => val,
 
-                    let hash: String = match serde_json::from_value(msg.result) {
-                        Ok(val) => val,
+            Err(e) => {
+                warn!("Error marshalling Get Block Count result.");
+                return Err(RpcServerError::Marshaller(e));
+            }
+        };
 
-                        Err(e) => {
-                            warn!("Error marshalling Get Block Count result.");
-                            return Poll::Ready(Err(RpcServerError::Marshaller(e)));
-                        }
-                    };
+        match crate::chaincfg::chainhash::Hash::new_from_str(&hash) {
+            Ok(e) => Ok(e),
 
-                    match crate::chaincfg::chainhash::Hash::new_from_str(&hash) {
-                        Ok(e) => Poll::Ready(Ok(e)),
-
-                        Err(e) => {
-                            warn!("Invalid hash bytes from server, error: {}.", e);
-                            Poll::Ready(Err(RpcServerError::InvalidResponse(format!("{}", e))))
-                        }
-                    }
-                }
-
-                None => {
-                    warn!("Server sent an empty response");
-                    Poll::Ready(Err(RpcServerError::EmptyResponse))
-                }
-            },
-
-            Poll::Pending => Poll::Pending,
+            Err(e) => {
+                warn!("Invalid hash bytes from server, error: {}.", e);
+                Err(RpcServerError::InvalidResponse(format!("{}", e)))
+            }
         }
     }
 }
