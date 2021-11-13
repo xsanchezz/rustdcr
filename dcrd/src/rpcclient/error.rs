@@ -50,4 +50,13 @@ pub enum RpcClientError {
     /// Client enabled http post mode
     #[error("websocket disabled, client using HTTP Post mode")]
     ClientNotConnected,
+    /// Invalid tls cerificate error on HTTP.
+    #[error("HTTP certificate error: {0}")]
+    HttpTlsCertificate(reqwest::Error),
+    /// Error setting http header
+    #[error("failed to set HTTP header on HTTP Post mode, error: {0}")]
+    HttpHeader(reqwest::header::InvalidHeaderValue),
+    /// Invalid http handshake to server.
+    #[error("error initiating HTTP Hanshake in HTTP Post mode, error: {0}")]
+    HttpHandshake(reqwest::Error),
 }

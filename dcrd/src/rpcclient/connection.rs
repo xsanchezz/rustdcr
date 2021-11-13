@@ -3,7 +3,7 @@
 
 use {
     super::error::RpcClientError,
-    futures_channel::mpsc,
+    futures_util::stream::SplitSink,
     futures_util::stream::{SplitStream, StreamExt},
     httparse::Status,
     log::warn,
@@ -90,6 +90,9 @@ impl Default for ConnConfig {
     }
 }
 
+/// TLS or TCP Websocket connection connection.
+pub type Websocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
 impl ConnConfig {
     /// Creates a websocket connection and returns a websocket
     ///  write feeder and a websocket reader. An asynchronous
@@ -97,13 +100,7 @@ impl ConnConfig {
     #[allow(dead_code)]
     pub async fn ws_split_stream(
         &mut self,
-    ) -> Result<
-        (
-            SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-            mpsc::Sender<Message>,
-        ),
-        RpcClientError,
-    > {
+    ) -> Result<(SplitStream<Websocket>, SplitSink<Websocket, Message>), RpcClientError> {
         let ws = match self.dial_websocket().await {
             Ok(ws) => ws,
             Err(e) => return Err(e),
@@ -112,13 +109,7 @@ impl ConnConfig {
         // Split websocket to a sink which sends websocket messages to server and a stream which receives websocket messages.
         let (ws_send, ws_rcv) = ws.split();
 
-        // A bounded channel that forwards messages to the websocket sender.
-        let (ws_tx, ws_rx) = mpsc::channel(1);
-
-        // websocket receiver ws_rx is consumed here and is closed if websocket is closed.
-        tokio::spawn(ws_rx.map(Ok).forward(ws_send));
-
-        Ok((ws_rcv, ws_tx))
+        Ok((ws_rcv, ws_send))
     }
 
     /// Invokes a websocket stream to rpcclient using optional TLS and socks proxy.
