@@ -1,21 +1,22 @@
-use crate::rpcclient::infrastructure;
-
 use {
-    super::chain_notification,
-    super::connection::Websocket,
+    super::{chain_notification, connection::Websocket},
     crate::{
         dcrjson::{commands, types::JsonResponse},
-        rpcclient::{connection, constants},
+        rpcclient::{connection, constants, infrastructure},
     },
     futures_util::{
         stream::{SplitSink, SplitStream, StreamExt},
         SinkExt,
     },
     log::{debug, info, trace, warn},
-    std::collections::{HashMap, VecDeque},
-    std::sync::Arc,
-    tokio::sync::{Mutex, RwLock},
-    tokio::{sync::mpsc, time},
+    std::{
+        collections::{HashMap, VecDeque},
+        sync::Arc,
+    },
+    tokio::{
+        sync::{mpsc, Mutex, RwLock},
+        time,
+    },
     tokio_tungstenite::{tungstenite, tungstenite::Error as WSError, tungstenite::Message},
 };
 
@@ -533,9 +534,13 @@ pub(super) async fn get_ws_sink(
 ) {
     // TODO: add ack
     tokio::spawn(async move {
-        while let Some(e) = sink.recv().await {
-            if let Err(e) = ws_sender.send(e).await {
-                // We can return the message error with an acknowledgement.
+        while let Some(msg) = sink.recv().await {
+            if let Err(e) = ws_sender.send(msg.clone()).await {
+                warn!("websocket sender dropped: {}", e);
+                // We return the dropped message back to the top
+                // of the queue.
+                ack.send(Err(msg.into_data())).await.ok();
+                return;
             };
         }
     });

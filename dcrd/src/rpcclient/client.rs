@@ -19,6 +19,67 @@ use {
     tokio_tungstenite::tungstenite::Message,
 };
 
+/// Represents a Decred RPC client which allows easy access to the
+/// various RPC methods available on a Decred RPC server.  Each of the wrapper
+/// functions handle the details of converting the passed and return types to and
+/// from the underlying JSON types which are required for the JSON-RPC
+/// invocations
+///
+/// The client provides each RPC in both synchronous (blocking) and asynchronous
+/// (non-blocking) forms.  The asynchronous forms are based on the concept of
+/// futures where they return an instance of a type that promises to deliver the
+/// result of the invocation at some future time.  Invoking the Receive method on
+/// the returned future will block until the result is available if it's not
+/// already.
+///
+/// All field in `Client` are async safe.
+pub struct Client {
+    /// tracks asynchronous requests and is to be updated at realtime.
+    pub(crate) id: AtomicU64,
+
+    /// A websocket channel that tunnels converted users messages to websocket write middleman to be consumed by websocket writer.
+    pub(crate) ws_user_command: mpsc::Sender<infrastructure::Command>,
+
+    /// An http channel sender that sends clients message to a http writer middleman to be consumed by http client.
+    pub(crate) http_user_command: mpsc::Sender<infrastructure::Command>,
+
+    /// A channel that calls for disconnection of websocket connection.
+    disconnect_ws: mpsc::Sender<()>,
+
+    /// A channel that acknowledges websocket disconnection.
+    ws_disconnected_acknowledgement: mpsc::Receiver<()>,
+
+    /// A channel that acknowledges websocket shutdown.
+    ws_shutdown_acknowledgement: mpsc::Receiver<()>,
+
+    /// A channel that broadcasts websocket shutdown.
+    ws_shutdown_broadcaster: mpsc::Sender<()>,
+
+    /// Holds the connection configuration associated with the client.
+    pub(crate) configuration: Arc<RwLock<connection::ConnConfig>>,
+
+    /// Contains all notification callback functions. It is protected by a mutex lock.
+    /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
+    pub(crate) notification_handler: Arc<notify::NotificationHandlers>,
+
+    /// Used to track the current state of successfully registered notifications so the state can be automatically
+    // re-established on reconnect.
+    /// On notification registration, message sent to the RPC server is copied and stored. This is so that on reconnection
+    /// same message can be sent to the server and server can reply to recently registered command channel which calls the callback
+    /// function.
+    pub(crate) notification_state: Arc<RwLock<HashMap<String, u64>>>,
+
+    /// Stores all requests to be be sent to the RPC server.
+    requests_queue_container: Arc<Mutex<VecDeque<Vec<u8>>>>,
+
+    /// Maps request ID to receiver channel.
+    /// Messages received from rpc server are mapped with ID stored.
+    pub(crate) receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<JsonResponse>>>>,
+
+    /// Indicates whether the client is disconnected from the server.
+    is_ws_disconnected: Arc<RwLock<bool>>,
+}
+
 /// Creates a new RPC client based on the provided connection configuration
 /// details.  The notification handlers parameter may be None if you are not
 /// interested in receiving notifications and will be ignored if the
@@ -32,6 +93,7 @@ pub async fn new(
 
     let disconnect_ws_channel = mpsc::channel(1);
     let ws_disconnect_acknowledgement = mpsc::channel(1);
+    let ws_shutdown_broadcast = mpsc::channel(1);
 
     let mut client = Client {
         id: AtomicU64::new(1),
@@ -48,6 +110,8 @@ pub async fn new(
         http_user_command: http_channel.0,
 
         ws_disconnected_acknowledgement: ws_disconnect_acknowledgement.1,
+        ws_shutdown_acknowledgement: ws_shutdown_broadcast.1,
+        ws_shutdown_broadcaster: ws_shutdown_broadcast.0,
     };
 
     let config = client.configuration.clone();
@@ -85,61 +149,6 @@ pub async fn new(
     }
 
     Ok(client)
-}
-
-/// Represents a Decred RPC client which allows easy access to the
-/// various RPC methods available on a Decred RPC server.  Each of the wrapper
-/// functions handle the details of converting the passed and return types to and
-/// from the underlying JSON types which are required for the JSON-RPC
-/// invocations
-///
-/// The client provides each RPC in both synchronous (blocking) and asynchronous
-/// (non-blocking) forms.  The asynchronous forms are based on the concept of
-/// futures where they return an instance of a type that promises to deliver the
-/// result of the invocation at some future time.  Invoking the Receive method on
-/// the returned future will block until the result is available if it's not
-/// already.
-///
-/// All field in `Client` are async safe.
-pub struct Client {
-    /// tracks asynchronous requests and is to be updated at realtime.
-    pub(crate) id: AtomicU64,
-
-    /// A websocket channel that tunnels converted users messages to websocket write middleman to be consumed by websocket writer.
-    pub(crate) ws_user_command: mpsc::Sender<infrastructure::Command>,
-
-    /// An http channel sender that sends clients message to a http writer middleman to be consumed by http client.
-    pub(crate) http_user_command: mpsc::Sender<infrastructure::Command>,
-
-    /// A channel that calls for disconnection of websocket connection.
-    disconnect_ws: mpsc::Sender<()>,
-
-    /// A channel that acknowledges websocket disconnection.
-    ws_disconnected_acknowledgement: mpsc::Receiver<()>,
-
-    /// Holds the connection configuration associated with the client.
-    pub(crate) configuration: Arc<RwLock<connection::ConnConfig>>,
-
-    /// Contains all notification callback functions. It is protected by a mutex lock.
-    /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
-    pub(crate) notification_handler: Arc<notify::NotificationHandlers>,
-
-    /// Used to track the current state of successfully registered notifications so the state can be automatically
-    // re-established on reconnect.
-    /// On notification registration, message sent to the RPC server is copied and stored. This is so that on reconnection
-    /// same message can be sent to the server and server can reply to recently registered command channel which calls the callback
-    /// function.
-    pub(crate) notification_state: Arc<RwLock<HashMap<String, u64>>>,
-
-    /// Stores all requests to be be sent to the RPC server.
-    requests_queue_container: Arc<Mutex<VecDeque<Vec<u8>>>>,
-
-    /// Maps request ID to receiver channel.
-    /// Messages received from rpc server are mapped with ID stored.
-    pub(crate) receiver_channel_id_mapper: Arc<Mutex<HashMap<u64, mpsc::Sender<JsonResponse>>>>,
-
-    /// Indicates whether the client is disconnected from the server.
-    is_ws_disconnected: Arc<RwLock<bool>>,
 }
 
 // TODO: Do we need a waitgroup???
@@ -372,13 +381,14 @@ impl Client {
     /// Disconnects RPC server, deletes command queue and errors any pending request by client.
     pub async fn disconnect(&mut self) {
         // Return if websocket is disconnected.
-        let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
-        if *is_ws_disconnected {
-            return;
-        }
+        {
+            let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
+            if *is_ws_disconnected {
+                return;
+            }
 
-        *is_ws_disconnected = true;
-        drop(is_ws_disconnected);
+            *is_ws_disconnected = true;
+        }
 
         if self.disconnect_ws.send(()).await.is_err() {
             warn!("error sending disconnect command to webserver, disconnect_ws closed.");
@@ -394,9 +404,7 @@ impl Client {
     }
 
     async fn unregister_notification_state(&mut self) {
-        let mut notification_state = self.notification_state.write().await;
-
-        notification_state.clear();
+        self.notification_state.write().await.clear()
     }
 
     /// Return websocket disconnected state to webserver.
@@ -404,20 +412,21 @@ impl Client {
         *self.is_ws_disconnected.read().await
     }
 
-    /// Blocks until the client is disconnected and connection closed.
-    pub fn wait_for_shutdown(&self) {
-        todo!()
+    /// Wait for shutdown waits for shutdown till a shutdown broadcast is
+    /// received or broadcaster has exited due to `shutdown` already being called
+    /// earlier.
+    pub async fn wait_for_shutdown(&mut self) {
+        self.ws_shutdown_acknowledgement.recv().await;
     }
 
     /// Clear queue, error commands channels and close websocket connection normally.
     /// Shutdown broadcasts a disconnect command to websocket continuosly and waits for waitgroup block to be
     /// closed before exiting.
-    pub async fn shutdown(&mut self) {
+    pub async fn shutdown(mut self) {
         if *self.is_ws_disconnected.read().await {
             info!("Websocket already disconnected. Closing connection.");
-
             return;
-        };
+        }
 
         info!("Shutting down websocket.");
 
@@ -425,10 +434,9 @@ impl Client {
 
         self.disconnect().await;
 
-        info!("Websocket disconnected.");
+        self.ws_shutdown_broadcaster.send(()).await.ok();
 
-        // self.waitgroup.done();
-        todo!()
+        info!("Websocket shutdown.");
     }
 }
 

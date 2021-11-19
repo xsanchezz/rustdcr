@@ -62,7 +62,7 @@ mod chain_hash {
         }
 
         // Set hash from byte slice and ensure contents match.
-        hash.set_bytes(hash_str.clone_hash().bytes().to_vec())
+        hash.set_bytes(hash_str.clone().bytes().to_vec())
             .expect("SetBytes: ");
 
         if !hash.is_equal(&hash_str) {

@@ -2,7 +2,6 @@ pub mod constants;
 mod error;
 pub use error::AmountError;
 
-
 use std::cmp::Ordering;
 use std::fmt::{self};
 
@@ -50,8 +49,6 @@ impl fmt::Display for Denomination {
     }
 }
 
-
-
 /// Converts a floating point number, which may or may not be representable
 /// as an integer, to the Amount integer type by rounding to the nearest integer.
 /// This is performed by adding or subtracting 0.5 depending on the sign, and
@@ -88,10 +85,10 @@ impl Amount {
     /// Converts a monetary amount counted in coin base units to a
     /// floating point value representing an amount of coins.
     pub fn to_unit(&self, denom: Denomination) -> f64 {
-         self.0 as f64 / 10.0f64.powi(denom.precision() + 8)
+        self.0 as f64 / 10.0f64.powi(denom.precision() + 8)
     }
 
-    // Equivalent of calling ToUnit with AmountCoin.
+    /// Equivalent of calling ToUnit with AmountCoin.
     pub fn to_coin(&self) -> f64 {
         self.to_unit(Denomination::AmountCoin)
     }
@@ -148,8 +145,8 @@ impl std::cmp::Ord for Amount {
     }
 }
 
-// Implements sorting interface to allow a slice of Amounts to
-// be sorted.
+/// Implements sorting interface to allow a slice of Amounts to
+/// be sorted.
 pub struct AmountSorter(Vec<Amount>);
 
 impl AmountSorter {
@@ -159,14 +156,17 @@ impl AmountSorter {
         self.0.len()
     }
 
-    pub fn is_empty(&self) -> bool{
+    /// Check if empty.
+    pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
+    /// Swap values.
     pub fn swap(&mut self, i: usize, j: usize) {
         self.0.swap(i, j)
     }
 
+    /// Compare values.
     pub fn less(&self, i: usize, j: usize) -> bool {
         // self.0[i]<self.0.[j]
         self.0[i] < self.0[j]

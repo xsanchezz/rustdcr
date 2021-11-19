@@ -1,3 +1,4 @@
+#![allow(missing_docs)]
 use {log::warn, std::collections::HashMap};
 
 /// Implements JSON RPC request structure to server.

@@ -3,11 +3,20 @@ use {
     std::convert::TryInto,
 };
 
+/// Hash is used in several of the messages and common structures.  It is a
+/// generic type so that it can represent any fixed-size hash as specified by the
+/// HashSize.
 pub struct Hash([u8; HASH_SIZE]);
 
+impl Clone for Hash {
+    fn clone(&self) -> Self {
+        Self(*self.bytes())
+    }
+}
+
 impl Hash {
-    // Returns the Hash as the hexadecimal string of the byte-reversed
-    // hash.
+    /// Returns the Hash as the hexadecimal string of the byte-reversed
+    /// hash.
     pub fn string(&self) -> Result<String, ChainHashError> {
         let mut hash = self.0;
 
@@ -22,10 +31,7 @@ impl Hash {
         Ok(s)
     }
 
-    pub fn clone_hash(&self) -> Hash {
-        Self(*self.bytes())
-    }
-
+    /// Get hash bytes.
     pub fn bytes(&self) -> &[u8; HASH_SIZE] {
         &self.0
     }

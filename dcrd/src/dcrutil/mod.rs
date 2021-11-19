@@ -1,3 +1,4 @@
+///! DCR Utilities
 pub mod amount;
 mod app_data;
 mod test;

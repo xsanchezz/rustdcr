@@ -9,6 +9,7 @@ pub enum ChainHashError {
     /// Invalid hash to string conversion.
     HashToString(std::fmt::Error),
 
+    /// Invalid hash decoding.
     HexDecode(hex::FromHexError),
 }
 

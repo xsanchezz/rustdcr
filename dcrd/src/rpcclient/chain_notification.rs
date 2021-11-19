@@ -92,6 +92,12 @@ impl Client {
         notif_future
     }
 
+    /// notify_work registers the client to receive notifications when a new block
+    /// template has been generated.
+    ///
+    /// The notifications delivered as a result of this call will be via on_work.
+    ///
+    /// NOTE: This is a dcrd extension and requires a websocket connection.
     pub async fn notify_work(&mut self) -> Result<NotificationsFuture, RpcClientError> {
         let config = self.configuration.read().await;
 
@@ -119,6 +125,17 @@ impl Client {
         notif_future
     }
 
+    /// notify_new_transactions registers the client to receive notifications every
+    /// time a new transaction is accepted to the memory pool.  The notifications are
+    /// delivered to the notification handlers associated with the client.  Calling
+    /// this function has no effect if there are no notification handlers and will
+    /// result in an error if the client is configured to run in HTTP POST mode.
+    ///
+    /// The notifications delivered as a result of this call will be via one of
+    /// on_tx_accepted (when verbose is false) or on_tx_accepted_verbose (when verbose is
+    /// true).
+    ///
+    /// NOTE: This is a dcrd extension and requires a websocket connection.
     pub async fn notify_new_transactions(
         &mut self,
         verbose: bool,
