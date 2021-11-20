@@ -20,6 +20,12 @@ macro_rules! build_future {
             pub(crate) message: mpsc::Receiver<JsonResponse>,
         }
 
+        impl $struct_name {
+            pub fn new(rcvr: mpsc::Receiver<JsonResponse>) -> $struct_name {
+                Self { message: rcvr }
+            }
+        }
+
         impl Future for $struct_name {
             type Output = $output;
 
