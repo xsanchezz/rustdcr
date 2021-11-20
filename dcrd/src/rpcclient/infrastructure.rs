@@ -563,6 +563,7 @@ pub(super) async fn get_ws_sink(
 ///
 /// On websocket disconnect a new websocket channel is to be created and sent across handler for
 /// a successful reconnection. Reconnection is only called if Auto Connect is enabled.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn ws_reconnect_handler<F>(
     config: Arc<RwLock<connection::ConnConfig>>,
     is_ws_disconnected: Arc<RwLock<bool>>,
@@ -753,15 +754,6 @@ pub(super) async fn handle_notification(
                         }
                     }
                 }
-
-                commands::NOTIFICATION_METHOD_STAKE_DIFFICULTY => match notif.on_stake_difficulty {
-                    Some(e) => chain_notification::on_stake_difficulty(&msg.params, e),
-
-                    None => {
-                        warn!("On stake difficulty notification callback not registered.");
-                        continue;
-                    }
-                },
 
                 commands::NOTIFICATION_METHOD_REORGANIZATION => match notif.on_reorganization {
                     Some(e) => chain_notification::on_reorganization(&msg.params, e),

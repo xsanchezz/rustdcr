@@ -1,5 +1,5 @@
 use rustdcr::{
-    chaincfg::chainhash::Hash,
+    dcrjson::types::TxRawResult,
     dcrutil,
     rpcclient::{client, connection, notify},
 };
@@ -40,70 +40,21 @@ async fn main() {
 
         on_block_connected: Some(|block_header: Vec<u8>, transactions: Vec<Vec<u8>>| {
             println!(
-                "\t\t\t\tBlock Connected Notif\n-Block header: {:?} \n-Transactions: {:?}",
+                "Block Connected Notif\n- Block header: {:?} \n-Transactions: {:?}",
                 block_header, transactions,
             )
         }),
 
         on_block_disconnected: Some(|block_header: Vec<u8>| {
             println!(
-                "\t\t\t\tBlock Disconnected Notif\n-Block header: {:?}",
+                "Block Disconnected Notif\n- Block header: {:?}",
                 block_header,
             )
         }),
 
-        on_work: Some(|data: Vec<u8>, target: Vec<u8>, reason: String| {
-            println!(
-                "\t\t\t\tOn Work Notif\n-Data: {:?}\n-Transactions: {:?}\n-Reason: {:?}",
-                data, target, reason,
-            )
+        on_tx_accepted_verbose: Some(|tx: TxRawResult| {
+            println!("Transaction Accepted\n-TX {:?}", tx)
         }),
-
-        on_new_tickets: Some(
-            |hash: Hash, height: i64, stake_diff: i64, tickets: Vec<Hash>| {
-                println!(
-                    "\t\t\t\tOn Tickets Notif\n-Hash: {:?}\n-Height: {:?}\n-Stake Diff: {:?}\n-Tickets: {:?}",
-                    hash.string().unwrap(),height, stake_diff,tickets,
-                )
-            },
-        ),
-
-        on_tx_accepted: Some(|hash: Hash, amount: dcrutil::amount::Amount| {
-            println!(
-                "\t\t\t\tOn TX Accepted\n-Hash: {:?}\n-Amount:{:?}",
-                hash.string(),
-                amount.to_string()
-            )
-        }),
-
-        on_tx_accepted_verbose: Some(|tx_details: rustdcr::dcrjson::types::TxRawResult| {
-            println!(
-                "\t\t\t\tOn TX Accepted Verbose\n-TX Raw Result: {:?}",
-                tx_details
-            )
-        }),
-
-        on_stake_difficulty: Some(|hash: Hash, height: i64, stake_diff: i64| {
-            println!(
-                "\t\t\t\tOn Stake Difficulty\n-Hash: {:?} \n-Height: {} \n-Stake Difference: {}",
-                hash.string().unwrap(),
-                height,
-                stake_diff,
-            )
-        }),
-
-        on_reorganization: Some(
-            |old_hash: Hash, old_height: i32, new_hash: Hash, new_height: i32| {
-                println!(
-                    "\t\t\t\tOn Block Reorganization
-                    \n-Old Hash: {:?} \n-Old Height: {:?} \n-New Hash: {:?} \n-New Height: {:?}",
-                    old_hash.string().unwrap(),
-                    old_height,
-                    new_hash.string().unwrap(),
-                    new_height
-                )
-            },
-        ),
 
         ..Default::default()
     };
@@ -123,13 +74,6 @@ async fn main() {
         .expect("Unable to send block notification command to server")
         .await
         .expect("Server replied with an error on notify blocks");
-
-    client
-        .notify_stake_difficulty()
-        .await
-        .expect("Unable to send stake notification command to server")
-        .await
-        .expect("Server replied with an error on stake notification");
 
     client.wait_for_shutdown().await;
 }

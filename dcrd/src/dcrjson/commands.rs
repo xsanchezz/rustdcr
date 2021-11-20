@@ -32,8 +32,6 @@ pub(crate) const METHOD_NOTIFIY_NEW_WORK: &str = "notifywork";
 /// Registers the client to receive either a txaccepted or a txacceptedverbose notification
 /// when a new transaction is accepted into the mempool.
 pub(crate) const METHOD_NEW_TX: &str = "notifynewtransactions";
-/// Registers the client to receive a stakedifficulty notification when the stake difficulty is updated.
-pub(crate) const METHOD_STAKE_DIFFICULTY: &str = "notifystakedifficulty";
 
 /// Returns information about the current state of the block chain.
 pub(crate) const METHOD_GET_BLOCKCHAIN_INFO: &str = "getblockchaininfo";

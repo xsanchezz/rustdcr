@@ -48,7 +48,7 @@ build_future![NotificationsFuture, Result<(), RpcServerError>];
 
 impl NotificationsFuture {
     fn on_message(&self, message: JsonResponse) -> Result<(), RpcServerError> {
-        trace!("Server sent a Get Blockchain Info result.");
+        trace!("Server sent an on_notification response");
         if message.error.is_null() {
             return Ok(());
         }
@@ -61,7 +61,7 @@ build_future![GetBlockchainInfoFuture, Result<types::BlockchainInfo, RpcServerEr
 
 impl GetBlockchainInfoFuture {
     fn on_message(&self, message: JsonResponse) -> Result<types::BlockchainInfo, RpcServerError> {
-        trace!("Server sent a Get Blockchain Info result.");
+        trace!("server sent a Get Blockchain Info result");
 
         if !message.error.is_null() {
             return Err(get_error_value(message.error));
@@ -71,7 +71,7 @@ impl GetBlockchainInfoFuture {
             Ok(val) => val,
 
             Err(e) => {
-                warn!("Error marshalling Get Blockchain Info result.");
+                warn!("error marshalling Get Blockchain Info result");
                 return Err(RpcServerError::Marshaller(e));
             }
         };
@@ -84,7 +84,7 @@ build_future![GetBlockCountFuture, Result<i64, RpcServerError>];
 
 impl GetBlockCountFuture {
     fn on_message(&self, message: JsonResponse) -> Result<i64, RpcServerError> {
-        trace!("Server sent a Get Blocks Count result.");
+        trace!("server sent a Get Blocks Count result");
 
         if !message.error.is_null() {
             return Err(get_error_value(message.error));
@@ -94,7 +94,7 @@ impl GetBlockCountFuture {
             Ok(val) => val,
 
             Err(e) => {
-                warn!("Error marshalling Get Block Count result.");
+                warn!("error marshalling Get Block Count result");
                 return Err(RpcServerError::Marshaller(e));
             }
         };
@@ -110,7 +110,7 @@ impl GetBlockHashFuture {
         &self,
         message: JsonResponse,
     ) -> Result<crate::chaincfg::chainhash::Hash, RpcServerError> {
-        trace!("Server sent a Get Blocks Count result.");
+        trace!("server sent a Get Blocks hash result");
 
         if !message.error.is_null() {
             return Err(get_error_value(message.error));
@@ -120,7 +120,7 @@ impl GetBlockHashFuture {
             Ok(val) => val,
 
             Err(e) => {
-                warn!("Error marshalling Get Block Count result.");
+                warn!("error marshalling Get Block Count result");
                 return Err(RpcServerError::Marshaller(e));
             }
         };
@@ -129,7 +129,7 @@ impl GetBlockHashFuture {
             Ok(e) => Ok(e),
 
             Err(e) => {
-                warn!("Invalid hash bytes from server, error: {}.", e);
+                warn!("invalid hash bytes from server, error: {}.", e);
                 Err(RpcServerError::InvalidResponse(format!("{}", e)))
             }
         }
@@ -141,7 +141,7 @@ fn get_error_value(error: serde_json::Value) -> RpcServerError {
         Ok(val) => val,
 
         Err(e) => {
-            warn!("Error marshalling error value.");
+            warn!("error marshalling error value.");
             return RpcServerError::Marshaller(e);
         }
     };
