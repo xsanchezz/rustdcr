@@ -10,27 +10,15 @@ mod infrastructure;
 pub mod notify;
 pub mod test;
 
-macro_rules! create_command {
-    ($name: ident, $output_type: ty, $command: expr, $json_params: expr, $($fn_params:ident : $fn_type: ty),*) => {
-        pub async fn $name(&mut self, $($fn_params : $fn_type),*) -> Result<$output_type, RpcClientError> {
-            // Error if user is not on HTTP mode and websocket is disconnected.
-            {
-                let config = self.configuration.read().await;
+macro_rules! check_config {
+    ($self:ident) => {
+        let config = $self.configuration.read().await;
 
-                if !config.http_post_mode && self.is_disconnected().await {
-                    return Err(RpcClientError::RpcDisconnected);
-                }
-            }
-
-            let cmd_result = self.send_custom_command($command, $json_params).await;
-
-            match cmd_result {
-                Ok(e) => Ok(<$output_type>::new(e.1)),
-
-                Err(e) => Err(e),
-            }
+        if config.http_post_mode || $self.is_disconnected().await {
+            return Err(RpcClientError::RpcDisconnected);
         }
+        drop(config);
     };
 }
 
-pub(super) use create_command;
+pub(super) use check_config;

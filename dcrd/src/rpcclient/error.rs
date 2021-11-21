@@ -47,9 +47,6 @@ pub enum RpcClientError {
     /// Websocket already connected to server.
     #[error("websocket already connected to RPC server")]
     WebsocketAlreadyConnected,
-    /// Client enabled http post mode
-    #[error("websocket disabled, client using HTTP Post mode")]
-    ClientNotConnected,
     /// Invalid tls cerificate error on HTTP.
     #[error("HTTP certificate error: {0}")]
     HttpTlsCertificate(reqwest::Error),

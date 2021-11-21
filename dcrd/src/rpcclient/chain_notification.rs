@@ -2,8 +2,7 @@
 //! Contains all chain non-wallet notification commands to RPC server.
 
 use {
-    super::error::RpcClientError,
-    super::future_type::NotificationsFuture,
+    super::{check_config, error::RpcClientError, future_type::NotificationsFuture},
     crate::{
         chaincfg::chainhash::Hash,
         dcrjson::{commands, parse_hex_parameters, types},
@@ -12,165 +11,140 @@ use {
     log::{trace, warn},
 };
 
-// ToDo: Currently, async functions are not allowed in traits.
-// Move all functions to a traits so as to hide methods also, we need one helper on_notifier function
-// to reduce code duplication.
+macro_rules! notification_generator {
+    ($doc: tt, $name: ident, $return_type: ty, $command: expr, $param: expr, ($($callback_name: tt),*), ($($fn_params:ident : $fn_type: ty),*)) => {
+        #[doc = $doc]
+        pub async fn $name(&mut self, $($fn_params : $fn_type),*) -> Result<$return_type, RpcClientError> {
+            check_config!(self);
+            callback_check!(self, $command, ($($callback_name),*));
+            create_notif_future!(self, $command, $param)
+        }
+    };
+
+    ($doc: tt, $name: ident, $return_type: ty, $command: expr, $param: expr, or($($callback_name: tt),*), ($($fn_params:ident : $fn_type: ty),*)) => {
+        #[doc = $doc]
+        pub async fn $name(&mut self, $($fn_params : $fn_type),*) -> Result<$return_type, RpcClientError> {
+            check_config!(self);
+            callback_check!(self, $command, or ($($callback_name),*));
+            create_notif_future!(self, $command, $param)
+        }
+    };
+
+    ($doc: tt, $name: ident, $return_type: ty, $command: expr, $param: expr, and($($callback_name: tt),*), ($($fn_params:ident : $fn_type: ty),*)) => {
+        #[doc = $doc]
+        pub async fn $name(&mut self, $($fn_params : $fn_type),*) -> Result<$return_type, RpcClientError> {
+            check_config!(self);
+            callback_check!(self, $command, and ($($callback_name),*));
+            create_notif_future!(self, $command, $param)
+        }
+    };
+}
+
+macro_rules! callback_check {
+    ($self: ident, $name: expr, and($($callback_name: tt), *)) => {
+        $(
+            let $callback_name = $self.notification_handler.$callback_name;
+        )*
+        if $(
+            $callback_name.is_none()
+        ) && * {
+            return Err(RpcClientError::UnregisteredNotification(
+                $name.to_string(),
+            ));
+        }
+    };
+
+    ($self: ident, $name: expr, ($($callback_name: tt), *)) => {
+        $(
+            let $callback_name = $self.notification_handler.$callback_name;
+        )*
+       if $(
+            $callback_name.is_none()
+        ) || * {
+            return Err(RpcClientError::UnregisteredNotification(
+                $name.to_string(),
+            ));
+        }
+    };
+}
+
+macro_rules! create_notif_future {
+    ($self: ident, $command: expr, $param: expr) => {{
+        let notif_future = $self.create_notification($command, $param).await;
+
+        notif_future
+    }};
+}
+
 impl Client {
-    /// Registers the client to receive notifications when blocks are
-    /// connected and disconnected from the main chain.  The notifications are
-    /// delivered to the notification handlers associated with the client.  Calling
-    /// this function has no effect if there are no notification handlers and will
-    /// result in an error if the client is configured to run in HTTP POST mode.
-    ///
-    /// The notifications delivered as a result of this call will be via one of
-    /// OnBlockConnected or OnBlockDisconnected.
-    ///
-    /// NOTE: This is a non-wallet extension and requires a websocket connection.
-    pub async fn notify_blocks(&mut self) -> Result<NotificationsFuture, RpcClientError> {
-        // Check if user is in HTTP post mode.
-        let config = self.configuration.read().await;
+    notification_generator!(
+        "notify_blocks registers the client to receive notifications when blocks are
+        connected and disconnected from the main chain.  The notifications are
+        delivered to the notification handlers associated with the client.  Calling
+        this function has no effect if there are no notification handlers and will
+        result in an error if the client is configured to run in HTTP POST mode.
 
-        if config.http_post_mode {
-            return Err(RpcClientError::ClientNotConnected);
-        }
-        drop(config);
+        The notifications delivered as a result of this call will be via one of
+        OnBlockConnected or OnBlockDisconnected.
 
-        if self.is_disconnected().await {
-            return Err(RpcClientError::RpcDisconnected);
-        }
+        NOTE: This is a non-wallet extension and requires a websocket connection.",
+        notify_blocks,
+        NotificationsFuture,
+        commands::METHOD_NOTIFY_BLOCKS.to_string(),
+        &[],
+        (on_block_connected, on_block_disconnected),
+        ()
+    );
 
-        let (block_connected_callback, block_disconnected_callback) = (
-            self.notification_handler.on_block_connected,
-            self.notification_handler.on_block_disconnected,
-        );
+    notification_generator!(
+        "notify_new_tickets registers the client to receive notifications when blocks are connected to the main
+        chain and new tickets have matured. The notifications are delivered to the notification handlers
+        associated with the client. Calling this function has no effect if there are no notification handlers
+        and will result in an error if the client is configured to run in HTTP POST mode.
+        The notifications delivered as a result of this call will be via OnNewTickets.
+        NOTE: This is a chain extension and requires a websocket connection.)",
+        notify_new_tickets,
+        NotificationsFuture,
+        commands::METHOD_NOTIFY_NEW_TICKETS.to_string(),
+        &[],
+        (on_new_tickets),
+        ()
+    );
 
-        if block_connected_callback.is_none() && block_disconnected_callback.is_none() {
-            return Err(RpcClientError::UnregisteredNotification(
-                "Notify blocks".into(),
-            ));
-        }
+    notification_generator!(
+        "notify_work registers the client to receive notifications when a new block
+        template has been generated.
 
-        let notif_future = self
-            .create_notification(commands::METHOD_NOTIFY_BLOCKS.to_string(), &[])
-            .await;
+        The notifications delivered as a result of this call will be via on_work.
 
-        notif_future
-    }
+        NOTE: This is a dcrd extension and requires a websocket connection",
+        notify_work,
+        NotificationsFuture,
+        commands::METHOD_NOTIFIY_NEW_WORK.to_string(),
+        &[],
+        (on_work),
+        ()
+    );
 
-    /// NotifyNewTickets registers the client to receive notifications when blocks are connected to the main
-    /// chain and new tickets have matured. The notifications are delivered to the notification handlers
-    /// associated with the client. Calling this function has no effect if there are no notification handlers
-    /// and will result in an error if the client is configured to run in HTTP POST mode.
-    ///
-    /// The notifications delivered as a result of this call will be via OnNewTickets.
-    ///
-    /// NOTE: This is a chain extension and requires a websocket connection.
-    pub async fn notify_new_tickets(&mut self) -> Result<NotificationsFuture, RpcClientError> {
-        let config = self.configuration.read().await;
+    notification_generator!(
+        "notify_new_transactions registers the client to receive notifications every
+        time a new transaction is accepted to the memory pool.  The notifications are
+        delivered to the notification handlers associated with the client.  Calling
+        this function has no effect if there are no notification handlers and will
+        result in an error if the client is configured to run in HTTP POST mode.
 
-        if config.http_post_mode {
-            return Err(RpcClientError::ClientNotConnected);
-        }
-        drop(config);
+        The notifications delivered as a result of this call will be via one of
+        on_tx_accepted (when verbose is false) or on_tx_accepted_verbose (when verbose is
+        true).
 
-        if self.is_disconnected().await {
-            return Err(RpcClientError::RpcDisconnected);
-        }
-
-        let on_new_ticket_callback = self.notification_handler.on_new_tickets;
-
-        if on_new_ticket_callback.is_none() {
-            return Err(RpcClientError::UnregisteredNotification(
-                "Notify new tickets".into(),
-            ));
-        }
-
-        let notif_future = self
-            .create_notification(commands::METHOD_NOTIFY_NEW_TICKETS.to_string(), &[])
-            .await;
-
-        notif_future
-    }
-
-    /// notify_work registers the client to receive notifications when a new block
-    /// template has been generated.
-    ///
-    /// The notifications delivered as a result of this call will be via on_work.
-    ///
-    /// NOTE: This is a dcrd extension and requires a websocket connection.
-    pub async fn notify_work(&mut self) -> Result<NotificationsFuture, RpcClientError> {
-        let config = self.configuration.read().await;
-
-        if config.http_post_mode {
-            return Err(RpcClientError::ClientNotConnected);
-        }
-        drop(config);
-
-        if self.is_disconnected().await {
-            return Err(RpcClientError::RpcDisconnected);
-        }
-
-        let on_work_callback = self.notification_handler.on_work;
-
-        if on_work_callback.is_none() {
-            return Err(RpcClientError::UnregisteredNotification(
-                "Notify work".into(),
-            ));
-        }
-
-        let notif_future = self
-            .create_notification(commands::METHOD_NOTIFIY_NEW_WORK.to_string(), &[])
-            .await;
-
-        notif_future
-    }
-
-    /// notify_new_transactions registers the client to receive notifications every
-    /// time a new transaction is accepted to the memory pool.  The notifications are
-    /// delivered to the notification handlers associated with the client.  Calling
-    /// this function has no effect if there are no notification handlers and will
-    /// result in an error if the client is configured to run in HTTP POST mode.
-    ///
-    /// The notifications delivered as a result of this call will be via one of
-    /// on_tx_accepted (when verbose is false) or on_tx_accepted_verbose (when verbose is
-    /// true).
-    ///
-    /// NOTE: This is a dcrd extension and requires a websocket connection.
-    pub async fn notify_new_transactions(
-        &mut self,
-        verbose: bool,
-    ) -> Result<NotificationsFuture, RpcClientError> {
-        let config = self.configuration.read().await;
-
-        if config.http_post_mode {
-            return Err(RpcClientError::ClientNotConnected);
-        }
-        drop(config);
-
-        if self.is_disconnected().await {
-            return Err(RpcClientError::RpcDisconnected);
-        }
-
-        let callbacks = (
-            self.notification_handler.on_tx_accepted,
-            self.notification_handler.on_tx_accepted_verbose,
-        );
-
-        if callbacks.0.is_none() && callbacks.1.is_none() {
-            return Err(RpcClientError::UnregisteredNotification(
-                "Notify new transactions".into(),
-            ));
-        }
-
-        let notif_future = self
-            .create_notification(
-                commands::METHOD_NEW_TX.to_string(),
-                &[serde_json::Value::Bool(verbose)],
-            )
-            .await;
-
-        notif_future
-    }
+        NOTE: This is a dcrd extension and requires a websocket connection.",
+        notify_new_transactions,
+        NotificationsFuture,
+        commands::METHOD_NEW_TX.to_string(),
+        &[serde_json::Value::Bool(verbose)],
+        and(on_tx_accepted, on_tx_accepted_verbose),
+        (verbose: bool)
+    );
 
     async fn create_notification(
         &mut self,

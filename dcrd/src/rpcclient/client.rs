@@ -275,13 +275,9 @@ impl Client {
     /// attempts were successful. The client will be shut down when the passed
     /// context is terminated.
     pub async fn connect(&mut self) -> Result<(), RpcClientError> {
-        if !*self.is_ws_disconnected.read().await {
-            return Err(RpcClientError::WebsocketAlreadyConnected);
-        }
-
         let mut config = self.configuration.write().await;
-        if config.http_post_mode {
-            return Err(RpcClientError::ClientNotConnected);
+        if !*self.is_ws_disconnected.read().await || config.http_post_mode {
+            return Err(RpcClientError::WebsocketAlreadyConnected);
         }
 
         let user_command_channel = mpsc::channel(1);
@@ -300,9 +296,10 @@ impl Client {
         drop(config);
 
         // Change websocket disconnected state.
-        let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
-        *is_ws_disconnected = false;
-        drop(is_ws_disconnected);
+        {
+            let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
+            *is_ws_disconnected = false;
+        }
 
         self.ws_handler(
             user_command_channel.1,
