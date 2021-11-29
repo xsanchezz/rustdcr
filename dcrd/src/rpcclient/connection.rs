@@ -3,6 +3,7 @@
 
 use {
     super::error::RpcClientError,
+    async_trait::async_trait,
     futures_util::stream::SplitSink,
     futures_util::stream::{SplitStream, StreamExt},
     httparse::Status,
@@ -17,6 +18,16 @@ use {
         MaybeTlsStream, WebSocketStream,
     },
 };
+
+#[async_trait]
+pub trait WebsocketConn {
+    /// Creates a websocket connection and returns a websocket
+    ///  write feeder and a websocket reader. An asynchronous
+    /// thread is spawn to forward messages sent from the ws_write feeder.
+    async fn ws_split_stream(
+        &mut self,
+    ) -> Result<(SplitStream<Websocket>, SplitSink<Websocket, Message>), RpcClientError>;
+}
 
 /// Describes the connection configuration parameters for the client.
 #[derive(Debug)]
@@ -93,12 +104,9 @@ impl Default for ConnConfig {
 /// TLS or TCP Websocket connection connection.
 pub type Websocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-impl ConnConfig {
-    /// Creates a websocket connection and returns a websocket
-    ///  write feeder and a websocket reader. An asynchronous
-    /// thread is spawn to forward messages sent from the ws_write feeder.
-    #[allow(dead_code)]
-    pub async fn ws_split_stream(
+#[async_trait]
+impl WebsocketConn for ConnConfig {
+    async fn ws_split_stream(
         &mut self,
     ) -> Result<(SplitStream<Websocket>, SplitSink<Websocket, Message>), RpcClientError> {
         let ws = match self.dial_websocket().await {
@@ -111,7 +119,9 @@ impl ConnConfig {
 
         Ok((ws_rcv, ws_send))
     }
+}
 
+impl ConnConfig {
     /// Invokes a websocket stream to rpcclient using optional TLS and socks proxy.
     async fn dial_websocket(
         &mut self,

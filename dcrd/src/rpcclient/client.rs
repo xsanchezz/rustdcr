@@ -3,7 +3,11 @@
 
 use {
     super::{
-        connection, connection::Websocket, constants, error::RpcClientError, infrastructure, notify,
+        connection,
+        connection::{Websocket, WebsocketConn},
+        constants,
+        error::RpcClientError,
+        infrastructure, notify,
     },
     crate::dcrjson::{types, types::JsonResponse},
     futures_util::stream::SplitSink,

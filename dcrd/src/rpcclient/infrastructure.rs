@@ -1,5 +1,8 @@
 use {
-    super::{chain_notification, connection::Websocket},
+    super::{
+        chain_notification,
+        connection::{Websocket, WebsocketConn},
+    },
     crate::{
         dcrjson::{commands, types::JsonResponse},
         rpcclient::{connection, constants, infrastructure},
@@ -29,16 +32,6 @@ pub(crate) struct Command {
     /// Message to be send to server server.
     pub rpc_message: Vec<u8>,
 }
-
-// #[derive(serde::Deserialize)]
-// pub(super) struct JsonID {
-//     pub id: serde_json::Value,
-// }
-
-// #[derive(serde::Deserialize)]
-// pub(super) struct JsonNotificationMethod {
-//     pub method: String,
-// }
 
 /// Handles tunneling messages sent by RPC server from server to client. handle_websocket_in is non-blocking.
 ///
