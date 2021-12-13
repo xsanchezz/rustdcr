@@ -1,6 +1,8 @@
 //! Chain Notification Commands.
 //! Contains all chain non-wallet notification commands to RPC server.
 
+use super::connection::RPCConn;
+
 use {
     super::{check_config, error::RpcClientError, future_type::NotificationsFuture},
     crate::{
@@ -76,7 +78,7 @@ macro_rules! create_notif_future {
     }};
 }
 
-impl Client {
+impl<C: 'static + RPCConn> Client<C> {
     notification_generator!(
         "notify_blocks registers the client to receive notifications when blocks are
         connected and disconnected from the main chain.  The notifications are

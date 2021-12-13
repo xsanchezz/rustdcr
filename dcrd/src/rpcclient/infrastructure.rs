@@ -1,8 +1,5 @@
 use {
-    super::{
-        chain_notification,
-        connection::{Websocket, WebsocketConn},
-    },
+    super::{chain_notification, connection::Websocket},
     crate::{
         dcrjson::{commands, types::JsonResponse},
         rpcclient::{connection, constants, infrastructure},
@@ -24,7 +21,7 @@ use {
 };
 
 /// Contains RPC Json ID, channel used to send RPC result and message to be sent to server.
-pub(crate) struct Command {
+pub struct Command {
     /// ID to track server to client commands.
     pub id: u64,
     /// Channel to send received message from server.
@@ -558,7 +555,7 @@ pub(super) async fn get_ws_sink(
 /// a successful reconnection. Reconnection is only called if Auto Connect is enabled.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn ws_reconnect_handler<F>(
-    config: Arc<RwLock<connection::ConnConfig>>,
+    mut conn: impl connection::RPCConn,
     is_ws_disconnected: Arc<RwLock<bool>>,
     mut ws_reconnect_signal: mpsc::Receiver<()>,
     websocket_read_new: mpsc::Sender<SplitStream<Websocket>>,
@@ -583,8 +580,7 @@ pub(super) async fn ws_reconnect_handler<F>(
         let mut backoff = std::time::Duration::new(0, 0);
 
         // Drop all websocket connection if auto reconnect is disabled or websocket is disconnected.
-        let mut config_clone = config.write().await;
-        if config_clone.disable_auto_reconnect {
+        if conn.disable_auto_reconnect() {
             info!("Websocket reconnect disabled. Dropping all websocket handler.");
 
             let mut is_ws_disconnected_clone = is_ws_disconnected.write().await;
@@ -597,7 +593,7 @@ pub(super) async fn ws_reconnect_handler<F>(
         loop {
             backoff += crate::rpcclient::constants::CONNECTION_RETRY_INTERVAL_SECS;
 
-            let (ws_rcv, ws_writer) = match config_clone.ws_split_stream().await {
+            let (ws_rcv, ws_writer) = match conn.ws_split_stream().await {
                 Ok(ws) => ws,
 
                 Err(e) => {
@@ -780,118 +776,4 @@ pub(super) async fn handle_notification(
     }
 
     trace!("Closing notification handler.");
-}
-
-/// Handles all RPC command if websocket mode is disabled.
-/// `client` sends Post requests to senders and receives response.
-/// `http_user_command` receives RPC commands and sends RPC Post message to server, received messages are then
-/// sent to the user channel.
-pub(super) async fn handle_post_methods(
-    client: reqwest::Client,
-    config: Arc<RwLock<super::connection::ConnConfig>>,
-    mut http_user_command: mpsc::Receiver<Command>,
-) {
-    let on_error = |err: String, response: JsonResponse, channel: mpsc::Sender<JsonResponse>| async move {
-        if let Err(e) = channel.send(response).await {
-            warn!(
-                "({}) Receiving channel closed abruptly on sending error message, error: {}",
-                err, e
-            );
-        }
-    };
-
-    while let Some(cmd) = http_user_command.recv().await {
-        let config = config.read().await;
-
-        let url = if config.disable_tls {
-            format!("http://{}", config.host)
-        } else {
-            format!("https://{}", config.host)
-        };
-
-        // Server response.
-        let mut json_response = JsonResponse::default();
-
-        let wrapped_request = client
-            .post(&url)
-            .basic_auth(&config.user, Some(&config.password))
-            .body(cmd.rpc_message)
-            .build();
-
-        drop(config);
-
-        let request = match wrapped_request {
-            Ok(e) => e,
-
-            Err(e) => {
-                warn!("Error creating HTTP Post request, error: {}", e);
-
-                // On error, errors are logged and channel is closed.
-                json_response.error =
-                    serde_json::Value::String("Error creating HTTP Post request".to_string());
-
-                on_error(
-                    "HTTP request handshake".to_string(),
-                    json_response,
-                    cmd.user_channel,
-                )
-                .await;
-                continue;
-            }
-        };
-
-        let response = match client.execute(request).await {
-            Ok(e) => e.bytes().await,
-
-            Err(e) => {
-                warn!("Error sending RPC message to server, error: {}", e);
-                json_response.error =
-                    serde_json::Value::String(format!("Error sending http request, error: {}", e));
-
-                on_error(
-                    "HTTP request execute".to_string(),
-                    json_response,
-                    cmd.user_channel,
-                )
-                .await;
-
-                continue;
-            }
-        };
-
-        let bytes = match response {
-            Ok(e) => e,
-
-            Err(e) => {
-                warn!("Error retrieving HTTP server response, error: {}", e);
-                on_error("HTTP response".to_string(), json_response, cmd.user_channel).await;
-
-                continue;
-            }
-        };
-
-        // Marshal server result to a json response.
-        json_response = match serde_json::from_slice(&bytes) {
-            Ok(m) => m,
-
-            Err(e) => {
-                warn!(
-                    "Error unmarshalling binary result, error: {}. \n Message: {:?}",
-                    e,
-                    std::str::from_utf8(&bytes)
-                );
-
-                continue;
-            }
-        };
-
-        let channel = cmd.user_channel;
-
-        if let Err(e) = channel.send(json_response).await {
-            warn!(
-                "Receiving request channel closed abruptly on HTTP post mode, error: {}",
-                e
-            )
-        }
-    }
 }

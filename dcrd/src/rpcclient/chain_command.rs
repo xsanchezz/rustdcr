@@ -1,3 +1,5 @@
+use super::connection::RPCConn;
+
 use {
     super::{check_config, client::Client, error::RpcClientError, future_type},
     crate::dcrjson::commands,
@@ -21,7 +23,7 @@ macro_rules! command_generator {
     };
 }
 
-impl Client {
+impl<C: 'static + RPCConn> Client<C> {
     command_generator!(
         "get_blockchain_info returns information about the current state of the block chain.",
         get_blockchain_info,

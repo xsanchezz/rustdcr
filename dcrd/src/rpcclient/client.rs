@@ -4,7 +4,7 @@
 use {
     super::{
         connection,
-        connection::{Websocket, WebsocketConn},
+        connection::{RPCConn, Websocket},
         constants,
         error::RpcClientError,
         infrastructure, notify,
@@ -37,7 +37,7 @@ use {
 /// already.
 ///
 /// All field in `Client` are async safe.
-pub struct Client {
+pub struct Client<C> {
     /// tracks asynchronous requests and is to be updated at realtime.
     pub(crate) id: AtomicU64,
 
@@ -59,8 +59,8 @@ pub struct Client {
     /// A channel that broadcasts websocket shutdown.
     ws_shutdown_broadcaster: mpsc::Sender<()>,
 
-    /// Holds the connection configuration associated with the client.
-    pub(crate) configuration: Arc<RwLock<connection::ConnConfig>>,
+    /// Holds the connection associated with the client.
+    pub(crate) conn: C,
 
     /// Contains all notification callback functions. It is protected by a mutex lock.
     /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
@@ -88,10 +88,10 @@ pub struct Client {
 /// details.  The notification handlers parameter may be None if you are not
 /// interested in receiving notifications and will be ignored if the
 /// configuration is set to run in HTTP POST mode.
-pub async fn new(
-    config: connection::ConnConfig,
+pub async fn new<C: 'static + connection::RPCConn>(
+    mut conn: C,
     notif_handler: notify::NotificationHandlers,
-) -> Result<Client, RpcClientError> {
+) -> Result<Client<C>, RpcClientError> {
     let websocket_channel = mpsc::channel(constants::SEND_BUFFER_SIZE);
     let http_channel = mpsc::channel(constants::SEND_BUFFER_SIZE);
 
@@ -101,8 +101,8 @@ pub async fn new(
 
     let mut client = Client {
         id: AtomicU64::new(1),
-        configuration: Arc::new(RwLock::new(config)),
         disconnect_ws: disconnect_ws_channel.0,
+        conn: conn.clone(),
 
         is_ws_disconnected: Arc::new(RwLock::new(true)),
         notification_handler: Arc::new(notif_handler),
@@ -118,13 +118,10 @@ pub async fn new(
         ws_shutdown_broadcaster: ws_shutdown_broadcast.0,
     };
 
-    let config = client.configuration.clone();
-    let mut config = config.write().await;
-
-    if !config.disable_connect_on_new && !config.http_post_mode {
+    if !conn.disable_connect_on_new() && !conn.is_http_mode() {
         info!("Establishing websocket connection");
 
-        match config.ws_split_stream().await {
+        match conn.ws_split_stream().await {
             Ok(ws) => {
                 client
                     .ws_handler(
@@ -140,23 +137,22 @@ pub async fn new(
 
             Err(e) => return Err(e),
         };
-    } else if config.http_post_mode {
-        let http_mode_future = match create_http_client(&config) {
-            Ok(e) => {
-                infrastructure::handle_post_methods(e, client.configuration.clone(), http_channel.1)
+    } else if conn.is_http_mode() {
+        let conn = conn.clone();
+
+        tokio::spawn(async move {
+            let http_mode_future = conn.handle_post_methods(http_channel.1);
+            if let Err(e) = http_mode_future.await {
+                log::error!("http connection error: {}", e)
             }
-
-            Err(e) => return Err(e),
-        };
-
-        tokio::spawn(http_mode_future);
+        });
     }
 
     Ok(client)
 }
 
 // TODO: Do we need a waitgroup???
-impl Client {
+impl<C: 'static + RPCConn> Client<C> {
     /// Handles websocket connection to server by calling selective function to handle websocket send, write and reconnect.
     ///
     /// `user_command` is a receiving channel that channels processed RPC command from client.
@@ -233,7 +229,7 @@ impl Client {
             .unwrap_or(|| {});
 
         let reconnect_handler = infrastructure::ws_reconnect_handler(
-            self.configuration.clone(),
+            self.conn.clone(),
             self.is_ws_disconnected.clone(),
             signal_ws_reconnect.1,
             new_ws_reader.0,
@@ -279,8 +275,7 @@ impl Client {
     /// attempts were successful. The client will be shut down when the passed
     /// context is terminated.
     pub async fn connect(&mut self) -> Result<(), RpcClientError> {
-        let mut config = self.configuration.write().await;
-        if !*self.is_ws_disconnected.read().await || config.http_post_mode {
+        if !*self.is_ws_disconnected.read().await || self.conn.is_http_mode() {
             return Err(RpcClientError::WebsocketAlreadyConnected);
         }
 
@@ -292,12 +287,11 @@ impl Client {
         self.disconnect_ws = disconnect_ws_channel.0;
         self.ws_disconnected_acknowledgement = ws_disconnect_acknowledgement.1;
 
-        let ws = match config.ws_split_stream().await {
+        let ws = match self.conn.ws_split_stream().await {
             Ok(ws) => ws,
 
             Err(e) => return Err(e),
         };
-        drop(config);
 
         // Change websocket disconnected state.
         {
@@ -342,9 +336,7 @@ impl Client {
             user_channel: channel.0,
         };
 
-        let config = self.configuration.read().await;
-
-        let server_channel = if config.http_post_mode {
+        let server_channel = if self.conn.is_http_mode() {
             self.http_user_command.clone()
         } else {
             self.ws_user_command.clone()
@@ -438,84 +430,5 @@ impl Client {
         self.ws_shutdown_broadcaster.send(()).await.ok();
 
         info!("Websocket shutdown.");
-    }
-}
-
-fn create_http_client(
-    config: &super::connection::ConnConfig,
-) -> Result<reqwest::Client, RpcClientError> {
-    let proxy = match &config.proxy_host {
-        Some(proxy) => {
-            let proxy = reqwest::Proxy::all(proxy);
-
-            let proxy = match proxy {
-                Ok(e) => e,
-
-                Err(e) => {
-                    warn!("Error setting up RPC proxy connection, error: {}", e);
-                    return Err(RpcClientError::ProxyConnection);
-                }
-            };
-
-            let proxy = if !config.proxy_password.is_empty() || !config.proxy_username.is_empty() {
-                proxy.basic_auth(&config.proxy_username, &config.proxy_password)
-            } else {
-                proxy
-            };
-
-            Some(proxy)
-        }
-
-        None => None,
-    };
-
-    let mut request_builder = reqwest::Client::builder();
-    request_builder = match proxy {
-        Some(e) => request_builder.proxy(e),
-
-        None => request_builder,
-    };
-
-    request_builder = match reqwest::Certificate::from_pem(config.certificates.as_bytes()) {
-        Ok(certificate) => {
-            // ToDo: check if host name is an ip before accepting invalid hostname.
-            request_builder
-                .add_root_certificate(certificate)
-                .danger_accept_invalid_certs(true)
-        }
-
-        Err(e) => {
-            warn!("Error parsing tls certificate, error: {}", e);
-            return Err(RpcClientError::HttpTlsCertificate(e));
-        }
-    };
-
-    let mut headers = reqwest::header::HeaderMap::new();
-
-    let header_value = match reqwest::header::HeaderValue::from_str("application/json") {
-        Ok(e) => e,
-        Err(e) => {
-            warn!(
-                "Failed to set header content type in HTTP Post mode, error: {}",
-                e
-            );
-            return Err(RpcClientError::HttpHeader(e));
-        }
-    };
-
-    headers.append(reqwest::header::CONTENT_TYPE, header_value);
-
-    let request_builder = request_builder.default_headers(headers);
-
-    match request_builder.build() {
-        Ok(e) => {
-            info!("Successful HTTP handshake");
-            Ok(e)
-        }
-
-        Err(e) => {
-            info!("Error building HTTP handshake, error: {}", e);
-            Err(RpcClientError::HttpHandshake(e))
-        }
     }
 }

@@ -1,16 +1,22 @@
 //! Client connection.
 //! Consists all websocket cofigurations.
 
+use crate::dcrjson::types::JsonResponse;
+
+use super::infrastructure::Command;
+
 use {
     super::error::RpcClientError,
     async_trait::async_trait,
     futures_util::stream::SplitSink,
     futures_util::stream::{SplitStream, StreamExt},
     httparse::Status,
+    log::info,
     log::warn,
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpStream,
+        sync::mpsc,
     },
     tokio_native_tls::native_tls,
     tokio_tungstenite::{
@@ -20,17 +26,24 @@ use {
 };
 
 #[async_trait]
-pub trait WebsocketConn {
+pub trait RPCConn: Sized + Send + Sync + Clone {
     /// Creates a websocket connection and returns a websocket
     ///  write feeder and a websocket reader. An asynchronous
     /// thread is spawn to forward messages sent from the ws_write feeder.
     async fn ws_split_stream(
         &mut self,
     ) -> Result<(SplitStream<Websocket>, SplitSink<Websocket, Message>), RpcClientError>;
+    async fn handle_post_methods(
+        &self,
+        http_user_command: mpsc::Receiver<Command>,
+    ) -> Result<(), RpcClientError>;
+    fn is_http_mode(&self) -> bool;
+    fn disable_connect_on_new(&self) -> bool;
+    fn disable_auto_reconnect(&self) -> bool;
 }
 
 /// Describes the connection configuration parameters for the client.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConnConfig {
     /// Full websocket url which consists host and port.
     pub host: String,
@@ -105,7 +118,7 @@ impl Default for ConnConfig {
 pub type Websocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 #[async_trait]
-impl WebsocketConn for ConnConfig {
+impl RPCConn for ConnConfig {
     async fn ws_split_stream(
         &mut self,
     ) -> Result<(SplitStream<Websocket>, SplitSink<Websocket, Message>), RpcClientError> {
@@ -118,6 +131,130 @@ impl WebsocketConn for ConnConfig {
         let (ws_send, ws_rcv) = ws.split();
 
         Ok((ws_rcv, ws_send))
+    }
+
+    async fn handle_post_methods(
+        &self,
+        mut http_user_command: mpsc::Receiver<Command>,
+    ) -> Result<(), RpcClientError> {
+        let client = self.create_http_client()?;
+
+        let on_error =
+            |err: String, response: JsonResponse, channel: mpsc::Sender<JsonResponse>| async move {
+                if let Err(e) = channel.send(response).await {
+                    warn!(
+                    "({}) Receiving channel closed abruptly on sending error message, error: {}",
+                    err, e
+                );
+                }
+            };
+
+        while let Some(cmd) = http_user_command.recv().await {
+            let url = if self.disable_tls {
+                format!("http://{}", self.host)
+            } else {
+                format!("https://{}", self.host)
+            };
+
+            // Server response.
+            let mut json_response = JsonResponse::default();
+
+            let wrapped_request = client
+                .post(&url)
+                .basic_auth(&self.user, Some(&self.password))
+                .body(cmd.rpc_message)
+                .build();
+
+            let request = match wrapped_request {
+                Ok(e) => e,
+
+                Err(e) => {
+                    warn!("Error creating HTTP Post request, error: {}", e);
+
+                    // On error, errors are logged and channel is closed.
+                    json_response.error =
+                        serde_json::Value::String("Error creating HTTP Post request".to_string());
+
+                    on_error(
+                        "HTTP request handshake".to_string(),
+                        json_response,
+                        cmd.user_channel,
+                    )
+                    .await;
+                    continue;
+                }
+            };
+
+            let response = match client.execute(request).await {
+                Ok(e) => e.bytes().await,
+
+                Err(e) => {
+                    warn!("Error sending RPC message to server, error: {}", e);
+                    json_response.error = serde_json::Value::String(format!(
+                        "Error sending http request, error: {}",
+                        e
+                    ));
+
+                    on_error(
+                        "HTTP request execute".to_string(),
+                        json_response,
+                        cmd.user_channel,
+                    )
+                    .await;
+
+                    continue;
+                }
+            };
+
+            let bytes = match response {
+                Ok(e) => e,
+
+                Err(e) => {
+                    warn!("Error retrieving HTTP server response, error: {}", e);
+                    on_error("HTTP response".to_string(), json_response, cmd.user_channel).await;
+
+                    continue;
+                }
+            };
+
+            // Marshal server result to a json response.
+            json_response = match serde_json::from_slice(&bytes) {
+                Ok(m) => m,
+
+                Err(e) => {
+                    warn!(
+                        "Error unmarshalling binary result, error: {}. \n Message: {:?}",
+                        e,
+                        std::str::from_utf8(&bytes)
+                    );
+
+                    continue;
+                }
+            };
+
+            let channel = cmd.user_channel;
+
+            if let Err(e) = channel.send(json_response).await {
+                warn!(
+                    "Receiving request channel closed abruptly on HTTP post mode, error: {}",
+                    e
+                )
+            }
+        }
+
+        Ok(())
+    }
+
+    fn disable_connect_on_new(&self) -> bool {
+        self.disable_connect_on_new
+    }
+
+    fn is_http_mode(&self) -> bool {
+        self.http_post_mode
+    }
+
+    fn disable_auto_reconnect(&self) -> bool {
+        self.disable_auto_reconnect
     }
 }
 
@@ -324,6 +461,83 @@ impl ConnConfig {
 
                 Err(e) => return Err(RpcClientError::RpcProxyResponseParse(e)),
             };
+        }
+    }
+
+    fn create_http_client(&self) -> Result<reqwest::Client, RpcClientError> {
+        let proxy = match self.proxy_host.clone() {
+            Some(proxy) => {
+                let proxy = reqwest::Proxy::all(proxy);
+
+                let proxy = match proxy {
+                    Ok(e) => e,
+
+                    Err(e) => {
+                        warn!("Error setting up RPC proxy connection, error: {}", e);
+                        return Err(RpcClientError::ProxyConnection);
+                    }
+                };
+
+                let proxy = if !self.proxy_password.is_empty() || !self.proxy_username.is_empty() {
+                    proxy.basic_auth(&self.proxy_username, &self.proxy_password)
+                } else {
+                    proxy
+                };
+
+                Some(proxy)
+            }
+
+            None => None,
+        };
+
+        let mut request_builder = reqwest::Client::builder();
+        request_builder = match proxy {
+            Some(e) => request_builder.proxy(e),
+
+            None => request_builder,
+        };
+
+        request_builder = match reqwest::Certificate::from_pem(self.certificates.as_bytes()) {
+            Ok(certificate) => {
+                // ToDo: check if host name is an ip before accepting invalid hostname.
+                request_builder
+                    .add_root_certificate(certificate)
+                    .danger_accept_invalid_certs(true)
+            }
+
+            Err(e) => {
+                warn!("Error parsing tls certificate, error: {}", e);
+                return Err(RpcClientError::HttpTlsCertificate(e));
+            }
+        };
+
+        let mut headers = reqwest::header::HeaderMap::new();
+
+        let header_value = match reqwest::header::HeaderValue::from_str("application/json") {
+            Ok(e) => e,
+            Err(e) => {
+                warn!(
+                    "Failed to set header content type in HTTP Post mode, error: {}",
+                    e
+                );
+                return Err(RpcClientError::HttpHeader(e));
+            }
+        };
+
+        headers.append(reqwest::header::CONTENT_TYPE, header_value);
+
+        let request_builder = request_builder.default_headers(headers);
+
+        match request_builder.build() {
+            Ok(e) => {
+                info!("Successful HTTP handshake");
+                Ok(e)
+            }
+
+            Err(e) => {
+                info!("Error building HTTP handshake, error: {}", e);
+                Err(RpcClientError::HttpHandshake(e))
+            }
         }
     }
 }

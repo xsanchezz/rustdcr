@@ -12,12 +12,9 @@ pub mod test;
 
 macro_rules! check_config {
     ($self:ident) => {
-        let config = $self.configuration.read().await;
-
-        if config.http_post_mode || $self.is_disconnected().await {
+        if $self.conn.is_http_mode() || $self.is_disconnected().await {
             return Err(RpcClientError::RpcDisconnected);
         }
-        drop(config);
     };
 }
 
