@@ -1,11 +1,13 @@
 use {
     super::{constants::HASH_SIZE, ChainHashError},
+    serde::{Deserialize, Serialize},
     std::convert::TryInto,
 };
 
 /// Hash is used in several of the messages and common structures.  It is a
 /// generic type so that it can represent any fixed-size hash as specified by the
 /// HashSize.
+#[derive(Deserialize, Serialize)]
 pub struct Hash([u8; HASH_SIZE]);
 
 impl Clone for Hash {

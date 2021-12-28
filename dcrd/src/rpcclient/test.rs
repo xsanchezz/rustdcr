@@ -4,116 +4,172 @@
 // Add test for notification reregistration
 // Add test for commands both on HTTP and normal.
 
-// mod test {
-//     use async_trait::async_trait;
-//     use futures_util::stream::{SplitSink, SplitStream, StreamExt};
-//     use std::net::TcpListener;
-//     use std::thread::spawn;
-//     use tokio_tungstenite::{
-//         connect_async,
-//         tungstenite::{
-//             accept_hdr,
-//             handshake::{client::Request, server::Response},
-//             Message,
-//         },
-//     };
+mod conntest {
+    use async_trait::async_trait;
+    use futures_util::stream::{SplitSink, SplitStream, StreamExt};
+    use std::net::TcpListener;
+    use std::thread::spawn;
+    use tokio::sync::mpsc;
+    use tokio_tungstenite::{
+        connect_async,
+        tungstenite::{
+            accept_hdr,
+            handshake::{client::Request, server::Response},
+            Message,
+        },
+    };
 
-//     use crate::{
-//         chaincfg::chainhash,
-//         rpcclient::{self, client, connection::Websocket, error::RpcClientError},
-//     };
-//     use serde_json::Value;
+    use crate::{
+        dcrjson::{commands, types::JsonResponse},
+        rpcclient::{self, connection::Websocket, error::RpcClientError, infrastructure::Command},
+    };
+    // use serde_json::Value;
+    use tokio_tungstenite::tungstenite::error;
 
-//     struct WebsocketConnTest;
+    /// Implements JSON RPC request structure to server.
+    #[derive(serde::Deserialize)]
+    pub struct TestRequest<'a> {
+        pub jsonrpc: &'a str,
+        pub method: &'a str,
+        pub id: u64,
+        pub params: Vec<serde_json::Value>,
+    }
 
-//     impl WebsocketConnTest {
-//         // pub fn mock_get_block_count(&self) -> serde_json::Value {
-//         //     Value::from(1)
-//         // }
+    #[derive(Clone)]
+    struct WebsocketConnTest;
 
-//         // pub fn mock_get_block_hash(&self) -> serde_json::Value {
-//         //     let hash = chainhash::Hash::new(vec![
-//         //         0x6f, 0xe2, 0x8c, 0x0a, 0xb6, 0xf1, 0xb3, 0x72, 0xc1, 0xa6, 0xa2, 0x46, 0xae, 0x63,
-//         //         0xf7, 0x4f, 0x93, 0x1e, 0x83, 0x65, 0xe1, 0x5a, 0x08, 0x9c, 0x68, 0xd6, 0x19, 0x00,
-//         //         0x00, 0x00, 0x00, 0x00,
-//         //     ])
-//         //     .unwrap();
+    pub fn _mock_get_block_count(id: u64) -> Message {
+        let res = JsonResponse {
+            id: serde_json::json!(id),
+            method: serde_json::json!(commands::METHOD_GET_BLOCK_COUNT),
+            result: serde_json::json!(100),
+            params: Vec::new(),
+            error: serde_json::Value::Null,
+            ..Default::default()
+        };
 
-//         //     Value::from(hash.string().unwrap())
-//         // }
-//     }
+        let marshalled = serde_json::to_string(&res).unwrap();
+        Message::Text(marshalled)
+    }
 
-//     impl WebsocketConnTest {
-//         pub fn start_server(&self) {
-//             let server = TcpListener::bind("127.0.0.1:3012").unwrap();
+    pub fn _start_server() {
+        let server = TcpListener::bind("127.0.0.1:3012").unwrap();
 
-//             for stream in server.incoming() {
-//                 spawn(move || {
-//                     let callback = |req: &Request, response: Response| {
-//                         println!("Received a new ws handshake");
-//                         println!("The request's path is: {}", req.uri().path());
-//                         println!("The request's headers are:");
-//                         for (ref header, _value) in req.headers() {
-//                             println!("* {}", header);
-//                         }
+        for stream in server.incoming() {
+            spawn(move || {
+                let callback = |req: &Request, response: Response| {
+                    println!("Received a new ws handshake");
+                    println!("The request's path is: {}", req.uri().path());
+                    println!("The request's headers are:");
+                    for (ref header, _value) in req.headers() {
+                        println!("* {}", header);
+                    }
 
-//                         // Let's add an additional header to our response to the client.
-//                         // let headers = response.headers_mut();
-//                         // headers.append("MyCustomHeader", ":)".parse().unwrap());
-//                         // headers.append("SOME_TUNGSTENITE_HEADER", "header_value".parse().unwrap());
+                    // Let's add an additional header to our response to the client.
+                    // let headers = response.headers_mut();
+                    // headers.append("MyCustomHeader", ":)".parse().unwrap());
+                    // headers.append("SOME_TUNGSTENITE_HEADER", "header_value".parse().unwrap());
 
-//                         Ok(response)
-//                     };
+                    Ok(response)
+                };
 
-//                     let mut websocket = accept_hdr(stream.unwrap(), callback).unwrap();
+                let mut websocket = accept_hdr(stream.unwrap(), callback).unwrap();
 
-//                     loop {
-//                         let msg = websocket.read_message().unwrap();
-//                         if msg.is_binary() || msg.is_text() {
-//                             println!("{}", msg.to_string());
-//                         }
-//                     }
-//                 });
-//             }
-//         }
-//     }
+                loop {
+                    let msg = match websocket.read_message() {
+                        Ok(msg) => msg,
 
-//     // #[async_trait]
-//     // impl rpcclient::connection::WebsocketConn for WebsocketConnTest {
-//     //     async fn ws_split_stream(
-//     //         &mut self,
-//     //     ) -> Result<(SplitStream<Websocket>, SplitSink<Websocket, Message>), RpcClientError>
-//     //     {
-//     //         self.start_server();
+                        Err(e) => match e {
+                            error::Error::ConnectionClosed => return,
+                            _ => panic!("connection closed abruptly"),
+                        },
+                    };
+                    if msg.is_binary() || msg.is_text() {
+                        let msg_to_str = &msg.to_string();
+                        let res: TestRequest = serde_json::from_str(msg_to_str).unwrap();
 
-//     //         let (ws_stream, _) = connect_async("127.0.0.1:3012")
-//     //             .await
-//     //             .expect("Failed to connect");
-//     //         println!("WebSocket handshake has been successfully completed");
+                        match res.method {
+                            commands::METHOD_GET_BLOCK_COUNT => websocket
+                                .write_message(_mock_get_block_count(res.id))
+                                .unwrap(),
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            });
+        }
+    }
 
-//     //         let (ws_send, ws_rcv) = ws_stream.split();
+    #[async_trait]
+    impl rpcclient::connection::RPCConn for WebsocketConnTest {
+        async fn ws_split_stream(
+            &mut self,
+        ) -> Result<(SplitStream<Websocket>, SplitSink<Websocket, Message>), RpcClientError>
+        {
+            let (ws_stream, _) = connect_async("ws://127.0.0.1:3012")
+                .await
+                .expect("Failed to connect");
+            println!("WebSocket handshake has been successfully completed");
 
-//     //         Ok((ws_rcv, ws_send))
-//     //     }
+            let (ws_send, ws_rcv) = ws_stream.split();
 
-//     //     fn disable_connect_on_new(&self) -> bool {
-//     //         false
-//     //     }
+            Ok((ws_rcv, ws_send))
+        }
 
-//     //     fn is_http_mode(&self) -> bool {
-//     //         false
-//     //     }
-//     // }
+        fn disable_connect_on_new(&self) -> bool {
+            false
+        }
 
-//     // #[tokio::test]
-//     // async fn test_conn() {
-//     //     use crate::rpcclient::connection::WebsocketConn;
+        fn is_http_mode(&self) -> bool {
+            false
+        }
 
-//     //     let mut conn_test = WebsocketConnTest;
+        fn disable_auto_reconnect(&self) -> bool {
+            false
+        }
 
-//     //     client::new(WebsocketConn, notif_handler)
+        async fn handle_post_methods(
+            &self,
+            _http_user_command: mpsc::Receiver<Command>,
+        ) -> Result<(), RpcClientError> {
+            todo!()
+        }
+    }
 
-//     //     let (rcv, send) = conn_test.ws_split_stream().await.unwrap();
+    #[tokio::test]
+    async fn test_conn() {
+        std::thread::spawn(|| {
+            _start_server();
+        });
 
-//     // }
-// }
+        use crate::rpcclient::{client, notify::NotificationHandlers};
+
+        let mut test_client = client::new(WebsocketConnTest, NotificationHandlers::default())
+            .await
+            .unwrap();
+
+        test_client.disconnect().await;
+
+        // TODO: Try sending request here.
+        match test_client.get_block_count().await.err().unwrap() {
+            RpcClientError::RpcDisconnected => println!("client disconnected"),
+            e => panic!("rpcclient client not disconnected: {}", e),
+        }
+
+        assert!(
+            test_client.is_disconnected().await,
+            "websocket wasnt disconnected"
+        );
+
+        match test_client.connect().await {
+            Ok(_) => println!("websocket reconnected"),
+            Err(e) => panic!("websocket errored reconnecting: {}", e),
+        };
+
+        // TODO: Try sending request here.
+        test_client.get_block_count().await.unwrap().await.unwrap();
+
+        // TODO: Try sending request here.
+        test_client.shutdown().await;
+    }
+}

@@ -680,7 +680,7 @@ pub(super) async fn handle_notification(
         info!("Received notification");
 
         if msg.params.is_empty() {
-            warn!("Server sent an invalid notification result");
+            warn!("server sent an invalid notification result: {:?}", msg);
             continue;
         }
 

@@ -116,7 +116,7 @@ impl GetBlockHashFuture {
         &self,
         message: JsonResponse,
     ) -> Result<crate::chaincfg::chainhash::Hash, RpcServerError> {
-        trace!("server sent a Get Blocks hash result");
+        trace!("server sent a Get Blocks Hash result");
 
         if !message.error.is_null() {
             return Err(get_error_value(message.error));
@@ -126,7 +126,7 @@ impl GetBlockHashFuture {
             Ok(val) => val,
 
             Err(e) => {
-                warn!("error marshalling Get Block Count result");
+                warn!("error marshalling Get Block Hash result");
                 return Err(RpcServerError::Marshaller(e));
             }
         };
@@ -137,6 +137,28 @@ impl GetBlockHashFuture {
             Err(e) => {
                 warn!("invalid hash bytes from server, error: {}.", e);
                 Err(RpcServerError::InvalidResponse(format!("{}", e)))
+            }
+        }
+    }
+}
+
+build_future![GetBlockVerboseFuture, Result<types::GetBlockVerboseResult, RpcServerError>];
+impl GetBlockVerboseFuture {
+    fn on_message(
+        &self,
+        message: JsonResponse,
+    ) -> Result<types::GetBlockVerboseResult, RpcServerError> {
+        trace!("server sent a Get Block Verbose result");
+        if !message.error.is_null() {
+            return Err(get_error_value(message.error));
+        }
+
+        match serde_json::from_value(message.result) {
+            Ok(val) => Ok(val),
+
+            Err(e) => {
+                warn!("error marshalling Get Block Verbose result");
+                Err(RpcServerError::Marshaller(e))
             }
         }
     }

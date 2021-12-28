@@ -53,12 +53,6 @@ pub struct Client<C> {
     /// A channel that acknowledges websocket disconnection.
     ws_disconnected_acknowledgement: mpsc::Receiver<()>,
 
-    /// A channel that acknowledges websocket shutdown.
-    ws_shutdown_acknowledgement: mpsc::Receiver<()>,
-
-    /// A channel that broadcasts websocket shutdown.
-    ws_shutdown_broadcaster: mpsc::Sender<()>,
-
     /// Holds the connection associated with the client.
     pub(crate) conn: C,
 
@@ -97,7 +91,6 @@ pub async fn new<C: 'static + connection::RPCConn>(
 
     let disconnect_ws_channel = mpsc::channel(1);
     let ws_disconnect_acknowledgement = mpsc::channel(1);
-    let ws_shutdown_broadcast = mpsc::channel(1);
 
     let mut client = Client {
         id: AtomicU64::new(1),
@@ -114,8 +107,6 @@ pub async fn new<C: 'static + connection::RPCConn>(
         http_user_command: http_channel.0,
 
         ws_disconnected_acknowledgement: ws_disconnect_acknowledgement.1,
-        ws_shutdown_acknowledgement: ws_shutdown_broadcast.1,
-        ws_shutdown_broadcaster: ws_shutdown_broadcast.0,
     };
 
     if !conn.disable_connect_on_new() && !conn.is_http_mode() {
@@ -405,13 +396,6 @@ impl<C: 'static + RPCConn> Client<C> {
         *self.is_ws_disconnected.read().await
     }
 
-    /// Wait for shutdown waits for shutdown till a shutdown broadcast is
-    /// received or broadcaster has exited due to `shutdown` already being called
-    /// earlier.
-    pub async fn wait_for_shutdown(&mut self) {
-        self.ws_shutdown_acknowledgement.recv().await;
-    }
-
     /// Clear queue, error commands channels and close websocket connection normally.
     /// Shutdown broadcasts a disconnect command to websocket continuosly and waits for waitgroup block to be
     /// closed before exiting.
@@ -426,8 +410,6 @@ impl<C: 'static + RPCConn> Client<C> {
         self.unregister_notification_state().await;
 
         self.disconnect().await;
-
-        self.ws_shutdown_broadcaster.send(()).await.ok();
 
         info!("Websocket shutdown.");
     }

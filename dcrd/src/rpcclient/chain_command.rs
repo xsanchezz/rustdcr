@@ -1,7 +1,7 @@
-use super::connection::RPCConn;
-
 use {
-    super::{check_config, client::Client, error::RpcClientError, future_type},
+    super::{
+        check_config, client::Client, connection::RPCConn, error::RpcClientError, future_type,
+    },
     crate::dcrjson::commands,
 };
 
@@ -47,5 +47,20 @@ impl<C: 'static + RPCConn> Client<C> {
         commands::METHOD_GET_BLOCK_HASH,
         &[serde_json::json!(block_height)],
         block_height: i64
+    );
+
+    command_generator!(
+        "get_block_verbose returns a data structure from the server with information
+        about a block given its hash.",
+        get_block_verbose,
+        future_type::GetBlockVerboseFuture,
+        commands::METHOD_GET_BLOCK,
+        &[
+            serde_json::json!(block_hash),
+            serde_json::json!(true),
+            serde_json::json!(verbose_tx)
+        ],
+        block_hash: String,
+        verbose_tx: bool
     );
 }

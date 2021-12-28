@@ -39,3 +39,4 @@ pub(crate) const METHOD_GET_BLOCKCHAIN_INFO: &str = "getblockchaininfo";
 pub(crate) const METHOD_GET_BLOCK_COUNT: &str = "getblockcount";
 /// Returns hash of the block in best block chain at the given height.
 pub(crate) const METHOD_GET_BLOCK_HASH: &str = "getblockhash";
+pub(crate) const METHOD_GET_BLOCK: &str = "getblock";

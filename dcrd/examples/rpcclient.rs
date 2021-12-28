@@ -64,16 +64,17 @@ async fn main() {
     client
         .notify_new_transactions(true)
         .await
-        .expect("Could not sent notify new tx notif to server")
+        .expect("could not sent notify new tx notif to server")
         .await
-        .expect("Server sent an error on notify new tx");
+        .expect("server sent an error on notify new tx");
 
     client
         .notify_blocks()
         .await
-        .expect("Unable to send block notification command to server")
+        .expect("unable to send block notification command to server")
         .await
-        .expect("Server replied with an error on notify blocks");
+        .expect("server replied with an error on notify blocks");
 
-    client.wait_for_shutdown().await;
+    tokio::signal::ctrl_c().await.unwrap();
+    client.shutdown().await;
 }

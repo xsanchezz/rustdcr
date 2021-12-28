@@ -134,16 +134,15 @@ impl<C: 'static + RPCConn> Client<C> {
         delivered to the notification handlers associated with the client.  Calling
         this function has no effect if there are no notification handlers and will
         result in an error if the client is configured to run in HTTP POST mode.
-
         The notifications delivered as a result of this call will be via one of
         on_tx_accepted (when verbose is false) or on_tx_accepted_verbose (when verbose is
         true).
-
+        
         NOTE: This is a dcrd extension and requires a websocket connection.",
         notify_new_transactions,
         NotificationsFuture,
         commands::METHOD_NEW_TX.to_string(),
-        &[serde_json::Value::Bool(verbose)],
+        &[serde_json::json!(verbose)],
         and(on_tx_accepted, on_tx_accepted_verbose),
         (verbose: bool)
     );

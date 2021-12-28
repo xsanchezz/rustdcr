@@ -30,6 +30,57 @@ pub struct RpcError {
     pub message: String,
 }
 
+/// GetBlockVerboseResult models the data from the getblock command when the
+/// verbose flag is set.  When the verbose flag is not set, getblock returns a
+/// hex-encoded string.  Contains Decred additions.
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug)]
+#[serde(default)]
+pub struct GetBlockVerboseResult {
+    pub hash: String,
+    pub confirmations: i64,
+    pub size: i32,
+    pub height: i64,
+    pub version: i32,
+    #[serde(rename = "merkleroot")]
+    pub merkle_root: String,
+    #[serde(rename = "stakeroot")]
+    pub stake_root: String,
+    pub tx: Vec<String>,
+    pub rawtx: Vec<TxRawResult>,
+    #[serde(rename = "stx")]
+    pub stake_tx: Vec<String>,
+    #[serde(rename = "rawstx")]
+    pub raw_stake_tx: Vec<TxRawResult>,
+    pub time: i64,
+    #[serde(rename = "mediantime")]
+    pub median_time: i64,
+    pub nonce: u32,
+    #[serde(rename = "votebits")]
+    pub vote_bits: u16,
+    #[serde(rename = "finalstate")]
+    pub final_state: String,
+    pub voters: u16,
+    #[serde(rename = "freshstake")]
+    pub fresh_stake: u8,
+    pub revocations: u8,
+    #[serde(rename = "poolsize")]
+    pub pool_size: u32,
+    pub bits: String,
+    #[serde(rename = "sbits")]
+    pub stake_bits: f64,
+    #[serde(rename = "extradata")]
+    pub extra_data: String,
+    #[serde(rename = "stakeversion")]
+    pub stake_version: u32,
+    pub difficulty: f64,
+    #[serde(rename = "chainwork")]
+    pub chain_work: String,
+    #[serde(rename = "previoushash")]
+    pub previous_hash: String,
+    #[serde(rename = "nextblockhash")]
+    pub next_block_hash: String,
+}
+
 /// Provides an overview of an agenda in a consensus deployment.
 #[derive(serde::Deserialize, Default, Debug)]
 #[serde(default)]
@@ -68,7 +119,7 @@ pub struct BlockchainInfo {
 }
 
 /// TxRawResult models the data from the getrawtransaction command.
-#[derive(serde::Deserialize, Default, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct TxRawResult {
     pub hex: Option<String>,
@@ -124,7 +175,7 @@ pub struct ScriptSig {
 
 /// Vout models parts of the tx data.  It is defined separately since both
 /// getrawtransaction and decoderawtransaction use the same structure.
-#[derive(serde::Deserialize, Default, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct Vout {
     pub value: f64,
@@ -134,7 +185,7 @@ pub struct Vout {
     pub script_pub_key: ScriptPubKeyResult,
 }
 
-#[derive(serde::Deserialize, Default, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
 #[serde(default)]
 pub struct ScriptPubKeyResult {
     pub asm: String,
