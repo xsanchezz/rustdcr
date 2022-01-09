@@ -95,7 +95,7 @@ pub struct GetBlockVerboseResult {
 }
 
 /// BlockchainInfo models the data returned from the get_blockchain_info command.
-#[derive(serde::Deserialize, Default)]
+#[derive(serde::Deserialize, Default, Debug)]
 #[serde(default)]
 pub struct BlockchainInfo {
     pub chain: String,

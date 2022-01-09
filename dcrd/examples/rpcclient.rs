@@ -1,5 +1,4 @@
 use rustdcr::{
-    dcrjson::result_types::TxRawResult,
     dcrutil,
     rpcclient::{client, connection, notify},
 };
@@ -52,21 +51,10 @@ async fn main() {
             )
         }),
 
-        on_tx_accepted_verbose: Some(|tx: TxRawResult| {
-            println!("Transaction Accepted\n-TX {:?}", tx)
-        }),
-
         ..Default::default()
     };
 
     let mut client = client::new(config, notif_handler).await.unwrap();
-
-    client
-        .notify_new_transactions(true)
-        .await
-        .expect("could not sent notify new tx notif to server")
-        .await
-        .expect("server sent an error on notify new tx");
 
     client
         .notify_blocks()
@@ -74,6 +62,16 @@ async fn main() {
         .expect("unable to send block notification command to server")
         .await
         .expect("server replied with an error on notify blocks");
+
+    // Send request to RPC server
+    let block_count_future = client.get_block_count().await.unwrap();
+
+    // Wait for response in an async thread
+    tokio::spawn(async move {
+        let block_count = block_count_future.await.unwrap();
+
+        println!("Current synced block count is {:?}", block_count);
+    });
 
     tokio::signal::ctrl_c().await.unwrap();
     client.shutdown().await;

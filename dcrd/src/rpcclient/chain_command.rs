@@ -1,4 +1,4 @@
-use crate::dcrjson::{cmd_types, result_types};
+use crate::dcrjson::cmd_types;
 
 use {
     super::{

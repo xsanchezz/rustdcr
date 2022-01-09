@@ -30,9 +30,9 @@ impl Serialize for EstimateSmartFeeMode {
 
 impl fmt::Display for EstimateSmartFeeMode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &EstimateSmartFeeMode::Conservative => write!(f, "conservative"),
-            &EstimateSmartFeeMode::Economical => write!(f, "economical"),
+        match *self {
+            EstimateSmartFeeMode::Conservative => write!(f, "conservative"),
+            EstimateSmartFeeMode::Economical => write!(f, "economical"),
         }
     }
 }
