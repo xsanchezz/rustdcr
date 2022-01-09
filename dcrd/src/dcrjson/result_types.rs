@@ -1,4 +1,5 @@
-#![allow(missing_docs)]
+//! Houses all JSON result types.
+
 use {log::warn, std::collections::HashMap};
 
 /// Implements JSON RPC request structure to server.
@@ -28,6 +29,18 @@ pub struct JsonResponse {
 pub struct RpcError {
     pub code: i64,
     pub message: String,
+}
+
+/// Provides an overview of an agenda in a consensus deployment.
+#[derive(serde::Deserialize, Default, Debug)]
+#[serde(default)]
+pub struct AgendaInfo {
+    pub status: String,
+    pub since: i64,
+    #[serde(rename = "starttime")]
+    pub start_time: u64,
+    #[serde(rename = "expiretime")]
+    pub expire_time: u64,
 }
 
 /// GetBlockVerboseResult models the data from the getblock command when the
@@ -81,18 +94,6 @@ pub struct GetBlockVerboseResult {
     pub next_block_hash: String,
 }
 
-/// Provides an overview of an agenda in a consensus deployment.
-#[derive(serde::Deserialize, Default, Debug)]
-#[serde(default)]
-pub struct AgendaInfo {
-    pub status: String,
-    pub since: i64,
-    #[serde(rename = "starttime")]
-    pub start_time: u64,
-    #[serde(rename = "expiretime")]
-    pub expire_time: u64,
-}
-
 /// BlockchainInfo models the data returned from the get_blockchain_info command.
 #[derive(serde::Deserialize, Default)]
 #[serde(default)]
@@ -116,6 +117,61 @@ pub struct BlockchainInfo {
     #[serde(rename = "maxblocksize")]
     pub max_block_size: i64,
     pub deployments: HashMap<String, AgendaInfo>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
+#[serde(default)]
+pub struct ScriptPubKeyResult {
+    pub asm: String,
+    pub hex: String,
+    #[serde(rename = "reqSigs")]
+    pub req_sigs: i32,
+    #[serde(rename = "type")]
+    pub script_type: String,
+    pub addresses: Vec<String>,
+    #[serde(rename = "commitamt")]
+    pub commit_amount: f64,
+}
+
+/// ScriptSig models a signature script.  It is defined separately since it only
+/// applies to non-coinbase.  Therefore the field in the Vin structure needs
+/// to be a pointer.
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
+#[serde(default)]
+pub struct ScriptSig {
+    pub asm: String,
+    pub hex: String,
+}
+
+// TransactionInput represents the inputs to a transaction.  Specifically a
+// transaction hash and output number pair. Contains Decred additions.
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
+#[serde(default)]
+pub struct TransactionInput {
+    pub amount: f64,
+    pub txid: String,
+    pub vout: u32,
+    pub tree: i8,
+}
+
+// TxRawDecodeResult models the data from the decoderawtransaction command.
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
+#[serde(default)]
+pub struct TxRawDecodeResult {
+    pub txid: String,
+    pub version: i32,
+    pub locktime: u32,
+    pub expiry: u32,
+    pub vin: Vec<Vin>,
+    pub vout: Vec<Vout>,
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
+#[serde(default)]
+pub struct EstimateSmartFeeResult {
+    pub feerate: f64,
+    pub errors: Vec<String>,
+    pub blocks: i64,
 }
 
 /// TxRawResult models the data from the getrawtransaction command.
@@ -163,16 +219,6 @@ pub struct Vin {
     pub script_sig: Option<ScriptSig>,
 }
 
-/// ScriptSig models a signature script.  It is defined separately since it only
-/// applies to non-coinbase.  Therefore the field in the Vin structure needs
-/// to be a pointer.
-#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
-#[serde(default)]
-pub struct ScriptSig {
-    pub asm: String,
-    pub hex: String,
-}
-
 /// Vout models parts of the tx data.  It is defined separately since both
 /// getrawtransaction and decoderawtransaction use the same structure.
 #[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
@@ -183,20 +229,6 @@ pub struct Vout {
     pub version: u16,
     #[serde(rename = "scriptPubKey")]
     pub script_pub_key: ScriptPubKeyResult,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Default, Debug, Clone)]
-#[serde(default)]
-pub struct ScriptPubKeyResult {
-    pub asm: String,
-    pub hex: String,
-    #[serde(rename = "reqSigs")]
-    pub req_sigs: i32,
-    #[serde(rename = "type")]
-    pub script_type: String,
-    pub addresses: Vec<String>,
-    #[serde(rename = "commitamt")]
-    pub commit_amount: f64,
 }
 
 impl Vin {

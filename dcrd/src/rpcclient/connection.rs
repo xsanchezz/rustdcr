@@ -1,7 +1,7 @@
 //! Client connection.
 //! Consists all websocket cofigurations.
 
-use crate::dcrjson::types::JsonResponse;
+use crate::dcrjson::result_types::JsonResponse;
 
 use super::infrastructure::Command;
 
@@ -25,6 +25,7 @@ use {
     },
 };
 
+/// RPC connection trait.
 #[async_trait]
 pub trait RPCConn: Sized + Send + Sync + Clone {
     /// Creates a websocket connection and returns a websocket

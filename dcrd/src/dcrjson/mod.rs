@@ -1,6 +1,7 @@
+pub mod cmd_types;
 pub(crate) mod commands;
 mod error;
-pub mod types;
+pub mod result_types;
 mod types_test;
 
 use crate::chaincfg::chainhash::Hash;

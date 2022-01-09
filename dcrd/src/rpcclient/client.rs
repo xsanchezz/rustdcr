@@ -9,7 +9,7 @@ use {
         error::RpcClientError,
         infrastructure, notify,
     },
-    crate::dcrjson::{types, types::JsonResponse},
+    crate::dcrjson::{result_types, result_types::JsonResponse},
     futures_util::stream::SplitSink,
     futures_util::stream::SplitStream,
     log::{info, warn},
@@ -352,7 +352,7 @@ impl<C: 'static + RPCConn> Client<C> {
     ) -> (u64, Result<Vec<u8>, serde_json::Error>) {
         let id = self.next_id();
 
-        let request = types::JsonRequest {
+        let request = result_types::JsonRequest {
             jsonrpc: "1.0",
             id,
             method,

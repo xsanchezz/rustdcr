@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod dcr_types_test {
 
-    use crate::dcrjson::types::{ScriptSig, Vin};
+    use crate::dcrjson::result_types::{ScriptSig, Vin};
 
     #[test]
     fn test_chain_svr_custom_results() {

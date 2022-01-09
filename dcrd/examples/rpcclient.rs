@@ -1,5 +1,5 @@
 use rustdcr::{
-    dcrjson::types::TxRawResult,
+    dcrjson::result_types::TxRawResult,
     dcrutil,
     rpcclient::{client, connection, notify},
 };

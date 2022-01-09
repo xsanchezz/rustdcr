@@ -3,8 +3,8 @@
 
 use {
     crate::dcrjson::{
-        types,
-        types::{JsonResponse, RpcError},
+        result_types,
+        result_types::{JsonResponse, RpcError},
         RpcServerError,
     },
     core::future::Future,
@@ -63,10 +63,13 @@ impl NotificationsFuture {
     }
 }
 
-build_future![GetBlockchainInfoFuture, Result<types::BlockchainInfo, RpcServerError>];
+build_future![GetBlockchainInfoFuture, Result<result_types::BlockchainInfo, RpcServerError>];
 
 impl GetBlockchainInfoFuture {
-    fn on_message(&self, message: JsonResponse) -> Result<types::BlockchainInfo, RpcServerError> {
+    fn on_message(
+        &self,
+        message: JsonResponse,
+    ) -> Result<result_types::BlockchainInfo, RpcServerError> {
         trace!("server sent a Get Blockchain Info result");
 
         if !message.error.is_null() {
@@ -142,12 +145,56 @@ impl GetBlockHashFuture {
     }
 }
 
-build_future![GetBlockVerboseFuture, Result<types::GetBlockVerboseResult, RpcServerError>];
+build_future![GetBlockVerboseFuture, Result<result_types::GetBlockVerboseResult, RpcServerError>];
 impl GetBlockVerboseFuture {
     fn on_message(
         &self,
         message: JsonResponse,
-    ) -> Result<types::GetBlockVerboseResult, RpcServerError> {
+    ) -> Result<result_types::GetBlockVerboseResult, RpcServerError> {
+        trace!("server sent a Get Block Verbose result");
+        if !message.error.is_null() {
+            return Err(get_error_value(message.error));
+        }
+
+        match serde_json::from_value(message.result) {
+            Ok(val) => Ok(val),
+
+            Err(e) => {
+                warn!("error marshalling Get Block Verbose result");
+                Err(RpcServerError::Marshaller(e))
+            }
+        }
+    }
+}
+
+build_future![DecodeRawTransactionFuture, Result<result_types::TxRawResult, RpcServerError>];
+impl DecodeRawTransactionFuture {
+    fn on_message(
+        &self,
+        message: JsonResponse,
+    ) -> Result<result_types::TxRawResult, RpcServerError> {
+        trace!("server sent a Get Block Verbose result");
+        if !message.error.is_null() {
+            return Err(get_error_value(message.error));
+        }
+
+        match serde_json::from_value(message.result) {
+            Ok(val) => Ok(val),
+
+            Err(e) => {
+                warn!("error marshalling Get Block Verbose result");
+                Err(RpcServerError::Marshaller(e))
+            }
+        }
+    }
+}
+
+build_future![EstimateSmartFeeFuture, Result<result_types::EstimateSmartFeeResult, RpcServerError>];
+impl EstimateSmartFeeFuture {
+    fn on_message(
+        &self,
+        message: JsonResponse,
+    ) -> Result<result_types::EstimateSmartFeeResult, RpcServerError> {
         trace!("server sent a Get Block Verbose result");
         if !message.error.is_null() {
             return Err(get_error_value(message.error));

@@ -1,3 +1,5 @@
+use crate::dcrjson::{cmd_types, result_types};
+
 use {
     super::{
         check_config, client::Client, connection::RPCConn, error::RpcClientError, future_type,
@@ -5,6 +7,7 @@ use {
     crate::dcrjson::commands,
 };
 
+/// Generates clients command
 macro_rules! command_generator {
     ($doc: tt, $name: ident, $output_type: ty, $command: expr, $json_params: expr, $($fn_params:ident : $fn_type: ty),*) => {
         #[doc = $doc]
@@ -62,5 +65,33 @@ impl<C: 'static + RPCConn> Client<C> {
         ],
         block_hash: String,
         verbose_tx: bool
+    );
+
+    command_generator!(
+        "decode_raw_transaction returns information about a transaction given its serialized bytes.",
+        decode_raw_transaction,
+        future_type::DecodeRawTransactionFuture,
+        commands::METHOD_DECODE_RAW_TRANSACTION,
+        &[serde_json::json!(serialized_tx)],
+        serialized_tx: &[u8]
+     );
+
+    command_generator!(
+        "estimate_smart_fee returns an estimation of a transaction fee rate (in dcr/KB)
+         that new transactions should pay if they desire to be mined in up to
+         'confirmations' blocks and the block number where the estimate was found.
+        
+         The mode parameter (roughly) selects the different thresholds for accepting
+         an estimation as reasonable, allowing users to select different trade-offs
+         between probability of the transaction being mined in the given target
+         confirmation range and minimization of fees paid.
+        
+         As of 2019-01, only the default conservative mode is supported by dcrd.",
+        estimate_smart_fee,
+        future_type::EstimateSmartFeeFuture,
+        commands::METHOD_ESTIMATE_SMART_FEE,
+        &[serde_json::json!(confirmations), serde_json::json!(mode),],
+        confirmations: i64,
+        mode: cmd_types::EstimateSmartFeeMode
     );
 }

@@ -7,7 +7,7 @@ use {
     super::{check_config, error::RpcClientError, future_type::NotificationsFuture},
     crate::{
         chaincfg::chainhash::Hash,
-        dcrjson::{commands, parse_hex_parameters, types},
+        dcrjson::{commands, parse_hex_parameters, result_types},
         rpcclient::client::Client,
     },
     log::{trace, warn},
@@ -479,7 +479,7 @@ pub(super) fn on_tx_accepted(
 
 pub(super) fn on_tx_accepted_verbose(
     params: &[serde_json::Value],
-    on_tx_verbose_callback: fn(tx_details: types::TxRawResult),
+    on_tx_verbose_callback: fn(tx_details: result_types::TxRawResult),
 ) {
     trace!("Received transaction accepted verbose notification");
 
@@ -490,7 +490,7 @@ pub(super) fn on_tx_accepted_verbose(
         return;
     }
 
-    let tx_details: types::TxRawResult = match serde_json::from_value(params[0].clone()) {
+    let tx_details: result_types::TxRawResult = match serde_json::from_value(params[0].clone()) {
         Ok(e) => e,
 
         Err(e) => {

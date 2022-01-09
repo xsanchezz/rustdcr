@@ -1,7 +1,7 @@
 use {
     super::{chain_notification, connection::Websocket},
     crate::{
-        dcrjson::{commands, types::JsonResponse},
+        dcrjson::{commands, result_types::JsonResponse},
         rpcclient::{connection, constants, infrastructure},
     },
     futures_util::{

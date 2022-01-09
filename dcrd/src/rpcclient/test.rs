@@ -20,7 +20,7 @@ mod conntest {
     };
 
     use crate::{
-        dcrjson::{commands, types::JsonResponse},
+        dcrjson::{commands, result_types::JsonResponse},
         rpcclient::{self, connection::Websocket, error::RpcClientError, infrastructure::Command},
     };
     // use serde_json::Value;

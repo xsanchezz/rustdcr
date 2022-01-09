@@ -71,11 +71,11 @@ pub struct NotificationHandlers {
     /// It will only be invoked if a preceding call to notify_new_transactions
     /// with the verbose flag set to true has been made to register for
     /// the notification and the function is non-nil.
-    pub on_tx_accepted_verbose: Option<fn(tx_details: crate::dcrjson::types::TxRawResult)>,
+    pub on_tx_accepted_verbose: Option<fn(tx_details: crate::dcrjson::result_types::TxRawResult)>,
 
     /// on_unknown_notification callback function is invoked when an unrecognized notification is received.
     /// This typically means the notification handling code for this package needs to be updated for a new
     /// notification type or the caller is using a custom notification this package does not know about.
     pub on_unknown_notification:
-        Option<fn(method: String, params: crate::dcrjson::types::JsonResponse)>,
+        Option<fn(method: String, params: crate::dcrjson::result_types::JsonResponse)>,
 }
