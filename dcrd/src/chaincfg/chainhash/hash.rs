@@ -1,21 +1,30 @@
 use {
-    super::{constants::HASH_SIZE, ChainHashErrors},
+    super::{constants::HASH_SIZE, ChainHashError},
+    serde::{Deserialize, Serialize},
     std::convert::TryInto,
 };
 
+/// Hash is used in several of the messages and common structures.  It is a
+/// generic type so that it can represent any fixed-size hash as specified by the
+/// HashSize.
+#[derive(Deserialize, Serialize)]
 pub struct Hash([u8; HASH_SIZE]);
 
+impl Clone for Hash {
+    fn clone(&self) -> Self {
+        Self(*self.bytes())
+    }
+}
+
 impl Hash {
-    // Returns the Hash as the hexadecimal string of the byte-reversed
-    // hash.
-    pub fn string(&self) -> Result<String, ChainHashErrors> {
-        let mut hash = self.0.clone();
+    /// Returns the Hash as the hexadecimal string of the byte-reversed
+    /// hash.
+    pub fn string(&self) -> Result<String, ChainHashError> {
+        let mut hash = self.0;
 
         let mut i = 0;
         while i < HASH_SIZE / 2 {
-            let i_val = hash[i];
-            hash[i] = hash[HASH_SIZE - 1 - i];
-            hash[HASH_SIZE - 1 - i] = i_val;
+            hash.swap(i, HASH_SIZE - 1 - i);
             i += 1;
         }
 
@@ -24,26 +33,23 @@ impl Hash {
         Ok(s)
     }
 
-    pub fn clone_hash(&self) -> Hash {
-        Self(self.bytes().clone())
-    }
-
+    /// Get hash bytes.
     pub fn bytes(&self) -> &[u8; HASH_SIZE] {
         &self.0
     }
 
     /// Sets the bytes which represent the hash.  An error is returned if
     /// the number of bytes passed in is not HASH_SIZE.
-    pub fn set_bytes(&mut self, hash: Vec<u8>) -> Result<(), ChainHashErrors> {
+    pub fn set_bytes(&mut self, hash: Vec<u8>) -> Result<(), ChainHashError> {
         if hash.len() != HASH_SIZE {
-            return Err(ChainHashErrors::HashSize);
+            return Err(ChainHashError::HashSize);
         }
 
         let boxed_slice = hash.into_boxed_slice();
 
         let boxed_array: Box<[u8; HASH_SIZE]> = match boxed_slice.try_into() {
             Ok(ba) => ba,
-            Err(_) => return Err(ChainHashErrors::HashSize),
+            Err(_) => return Err(ChainHashError::HashSize),
         };
 
         self.0 = *boxed_array;
@@ -51,8 +57,13 @@ impl Hash {
     }
 
     /// Get length of hash.
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
+    }
+
+    /// Check if `Hash` is empty
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
     /// Returns true if target is the same as hash.
@@ -62,7 +73,7 @@ impl Hash {
 
     /// Returns a new Hash from a byte slice.  An error is returned if
     /// the number of bytes passed in is not HASH_SIZE.
-    pub fn new(hash: Vec<u8>) -> Result<Self, ChainHashErrors> {
+    pub fn new(hash: Vec<u8>) -> Result<Self, ChainHashError> {
         let mut h = Self { 0: [0; 32] };
 
         match h.set_bytes(hash) {
@@ -77,7 +88,7 @@ impl Hash {
     /// Creates a Hash from a hash string.  The string should be the hexadecimal
     /// string of a byte-reversed hash, but any missing characters result in zero padding at
     /// at the end of the Hash.
-    pub fn new_from_str(value: &str) -> Result<Hash, ChainHashErrors> {
+    pub fn new_from_str(value: &str) -> Result<Hash, ChainHashError> {
         let mut h = Self { 0: [0; HASH_SIZE] };
         match h.decode(value) {
             Ok(_) => {}
@@ -90,10 +101,10 @@ impl Hash {
 
     /// Decodes the byte-reversed hexadecimal string encoding of a Hash to a
     /// destination.
-    pub fn decode(&mut self, src: &str) -> Result<(), ChainHashErrors> {
+    pub fn decode(&mut self, src: &str) -> Result<(), ChainHashError> {
         // Return error if hash string is too long.
         if src.len() > super::constants::MAX_HASH_STRING_SIZE {
-            return Err(ChainHashErrors::HashStringSize);
+            return Err(ChainHashError::HashStringSize);
         }
 
         // Hex decoder expects the hash to be a multiple of two.  When not, pad
@@ -115,7 +126,7 @@ impl Hash {
 
         match hex::decode_to_slice(src_bytes, &mut reversed_hash[HASH_SIZE - src_len..]) {
             Ok(_) => {}
-            Err(e) => return Err(ChainHashErrors::HexDecode(e)),
+            Err(e) => return Err(ChainHashError::HexDecode(e)),
         };
 
         let mut i = HASH_SIZE / 2;

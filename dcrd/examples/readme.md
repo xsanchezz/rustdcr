@@ -20,7 +20,7 @@ disconnected notifications till users signal a signal interrupt *subject to chan
 Finally, navigate to the parent directory where the `cargo.toml` file is located and run
 
 ```bash
-$ RUST_LOG=trace cargo build --example rpcclient
+$ RUST_LOG=trace cargo run --example rpcclient
 ```
 
 ## License

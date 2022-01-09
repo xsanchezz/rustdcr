@@ -1,11 +1,6 @@
 //! dcrd rpcclient.
-#![deny(missing_docs)]
-#[doc(hidden)]
+#![deny(dead_code)]
 pub mod chaincfg;
-#[doc(hidden)]
 pub mod dcrjson;
-#[doc(hidden)]
 pub mod dcrutil;
-pub(crate) mod helper;
-#[doc(hidden)]
 pub mod rpcclient;
