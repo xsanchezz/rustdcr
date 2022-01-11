@@ -2,92 +2,26 @@
 //! Contains all client methods to connect to RPC server.
 
 use {
-    super::{connection, constants, infrastructure, notify, RpcClientError},
-    crate::{dcrjson::chain_command_result::JsonResponse, helper::waitgroup},
-    async_std::sync::{Arc, Mutex, RwLock},
-    futures::stream::SplitStream,
+    super::{
+        connection,
+        connection::{RPCConn, Websocket},
+        constants,
+        error::RpcClientError,
+        infrastructure, notify,
+    },
+    crate::dcrjson::{result_types, result_types::JsonResponse},
+    futures_util::stream::SplitSink,
+    futures_util::stream::SplitStream,
     log::{info, warn},
+    std::sync::Arc,
     std::{
         collections::{HashMap, VecDeque},
         sync::atomic::{AtomicU64, Ordering},
     },
-    tokio::{net::TcpStream, sync::mpsc},
-    tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream},
+    tokio::sync::mpsc,
+    tokio::sync::{Mutex, RwLock},
+    tokio_tungstenite::tungstenite::Message,
 };
-
-/// TLS or TCP Websocket connection connection.
-pub type Websocket = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
-
-/// Creates a new RPC client based on the provided connection configuration
-/// details.  The notification handlers parameter may be None if you are not
-/// interested in receiving notifications and will be ignored if the
-/// configuration is set to run in HTTP POST mode.
-pub async fn new(
-    config: connection::ConnConfig,
-    notif_handler: notify::NotificationHandlers,
-) -> Result<Client, RpcClientError> {
-    let websocket_channel = mpsc::channel(constants::SEND_BUFFER_SIZE);
-    let http_channel = mpsc::channel(constants::SEND_BUFFER_SIZE);
-
-    let disconnect_ws_channel = mpsc::channel(1);
-    let ws_disconnect_acknowledgement = mpsc::channel(1);
-
-    let mut client = Client {
-        id: AtomicU64::new(1),
-        configuration: Arc::new(RwLock::new(config)),
-        disconnect_ws: disconnect_ws_channel.0,
-
-        is_ws_disconnected: Arc::new(RwLock::new(true)),
-        notification_handler: Arc::new(notif_handler),
-        notification_state: Arc::new(RwLock::new(HashMap::new())),
-        receiver_channel_id_mapper: Arc::new(Mutex::new(HashMap::new())),
-        requests_queue_container: Arc::new(Mutex::new(VecDeque::new())),
-
-        ws_user_command: websocket_channel.0,
-        http_user_command: http_channel.0,
-
-        ws_disconnected_acknowledgement: ws_disconnect_acknowledgement.1,
-        waitgroup: waitgroup::new(),
-    };
-
-    let config = client.configuration.clone();
-    let mut config = config.write().await;
-
-    client.waitgroup.add(1);
-
-    if !config.disable_connect_on_new && !config.http_post_mode {
-        info!("Establishing websocket connection");
-
-        match config.ws_split_stream().await {
-            Ok(ws) => {
-                client
-                    .ws_handler(
-                        websocket_channel.1,
-                        disconnect_ws_channel.1,
-                        ws_disconnect_acknowledgement.0,
-                        ws,
-                    )
-                    .await;
-
-                *client.is_ws_disconnected.write().await = false;
-            }
-
-            Err(e) => return Err(e),
-        };
-    } else if config.http_post_mode {
-        let http_mode_future = match create_http_client(&config) {
-            Ok(e) => {
-                infrastructure::handle_post_methods(e, client.configuration.clone(), http_channel.1)
-            }
-
-            Err(e) => return Err(e),
-        };
-
-        tokio::spawn(http_mode_future);
-    }
-
-    Ok(client)
-}
 
 /// Represents a Decred RPC client which allows easy access to the
 /// various RPC methods available on a Decred RPC server.  Each of the wrapper
@@ -103,7 +37,7 @@ pub async fn new(
 /// already.
 ///
 /// All field in `Client` are async safe.
-pub struct Client {
+pub struct Client<C> {
     /// tracks asynchronous requests and is to be updated at realtime.
     pub(crate) id: AtomicU64,
 
@@ -119,8 +53,8 @@ pub struct Client {
     /// A channel that acknowledges websocket disconnection.
     ws_disconnected_acknowledgement: mpsc::Receiver<()>,
 
-    /// Holds the connection configuration associated with the client.
-    pub(crate) configuration: Arc<RwLock<connection::ConnConfig>>,
+    /// Holds the connection associated with the client.
+    pub(crate) conn: C,
 
     /// Contains all notification callback functions. It is protected by a mutex lock.
     /// To update notification handlers, you need to call an helper method. ToDo create an helper method.
@@ -142,12 +76,74 @@ pub struct Client {
 
     /// Indicates whether the client is disconnected from the server.
     is_ws_disconnected: Arc<RwLock<bool>>,
-
-    /// Asynchronously blocks.
-    waitgroup: waitgroup::WaitGroup,
 }
 
-impl Client {
+/// Creates a new RPC client based on the provided connection configuration
+/// details.  The notification handlers parameter may be None if you are not
+/// interested in receiving notifications and will be ignored if the
+/// configuration is set to run in HTTP POST mode.
+pub async fn new<C: 'static + connection::RPCConn>(
+    mut conn: C,
+    notif_handler: notify::NotificationHandlers,
+) -> Result<Client<C>, RpcClientError> {
+    let websocket_channel = mpsc::channel(constants::SEND_BUFFER_SIZE);
+    let http_channel = mpsc::channel(constants::SEND_BUFFER_SIZE);
+
+    let disconnect_ws_channel = mpsc::channel(1);
+    let ws_disconnect_acknowledgement = mpsc::channel(1);
+
+    let mut client = Client {
+        id: AtomicU64::new(1),
+        disconnect_ws: disconnect_ws_channel.0,
+        conn: conn.clone(),
+
+        is_ws_disconnected: Arc::new(RwLock::new(true)),
+        notification_handler: Arc::new(notif_handler),
+        notification_state: Arc::new(RwLock::new(HashMap::new())),
+        receiver_channel_id_mapper: Arc::new(Mutex::new(HashMap::new())),
+        requests_queue_container: Arc::new(Mutex::new(VecDeque::new())),
+
+        ws_user_command: websocket_channel.0,
+        http_user_command: http_channel.0,
+
+        ws_disconnected_acknowledgement: ws_disconnect_acknowledgement.1,
+    };
+
+    if !conn.disable_connect_on_new() && !conn.is_http_mode() {
+        info!("Establishing websocket connection");
+
+        match conn.ws_split_stream().await {
+            Ok(ws) => {
+                client
+                    .ws_handler(
+                        websocket_channel.1,
+                        disconnect_ws_channel.1,
+                        ws_disconnect_acknowledgement.0,
+                        ws,
+                    )
+                    .await;
+
+                *client.is_ws_disconnected.write().await = false;
+            }
+
+            Err(e) => return Err(e),
+        };
+    } else if conn.is_http_mode() {
+        let conn = conn.clone();
+
+        tokio::spawn(async move {
+            let http_mode_future = conn.handle_post_methods(http_channel.1);
+            if let Err(e) = http_mode_future.await {
+                log::error!("http connection error: {}", e)
+            }
+        });
+    }
+
+    Ok(client)
+}
+
+// TODO: Do we need a waitgroup???
+impl<C: 'static + RPCConn> Client<C> {
     /// Handles websocket connection to server by calling selective function to handle websocket send, write and reconnect.
     ///
     /// `user_command` is a receiving channel that channels processed RPC command from client.
@@ -165,12 +161,8 @@ impl Client {
         user_command: mpsc::Receiver<infrastructure::Command>,
         disconnect_ws_cmd_rcv: mpsc::Receiver<()>,
         ws_disconnect_acknowledgement: mpsc::Sender<()>,
-        split_stream: (Websocket, mpsc::Sender<Message>),
+        stream: (SplitStream<Websocket>, SplitSink<Websocket, Message>),
     ) {
-        self.waitgroup.add(1);
-
-        let new_ws_writer = mpsc::channel(1);
-
         let queue_command = mpsc::channel(1);
 
         let msg_acknowledgement = mpsc::channel(1);
@@ -179,11 +171,16 @@ impl Client {
 
         let notification_handler = mpsc::channel(1);
 
+        let new_ws_sink = mpsc::channel(1);
+        let ws_sink = mpsc::channel(1);
+
+        infrastructure::get_ws_sink(ws_sink.1, stream.1, msg_acknowledgement.0.clone()).await;
+
         let websocket_out = infrastructure::handle_websocket_out(
-            split_stream.1,
-            new_ws_writer.1,
+            ws_sink.0,
+            new_ws_sink.1,
             queue_command.1,
-            msg_acknowledgement.0,
+            msg_acknowledgement.0.clone(),
             request_queue_update.1,
             disconnect_ws_cmd_rcv,
         );
@@ -196,7 +193,7 @@ impl Client {
 
         let websocket_in = infrastructure::handle_websocket_in(
             handle_rcvd_msg.0,
-            split_stream.0,
+            stream.0,
             new_ws_reader.1,
             signal_ws_reconnect.0,
         );
@@ -223,12 +220,13 @@ impl Client {
             .unwrap_or(|| {});
 
         let reconnect_handler = infrastructure::ws_reconnect_handler(
-            self.configuration.clone(),
+            self.conn.clone(),
             self.is_ws_disconnected.clone(),
             signal_ws_reconnect.1,
             new_ws_reader.0,
-            new_ws_writer.0,
+            new_ws_sink.0,
             self.notification_state.clone(),
+            msg_acknowledgement.0,
             on_client_connected,
         );
 
@@ -246,8 +244,6 @@ impl Client {
         tokio::spawn(notification_handler);
 
         on_client_connected();
-
-        self.waitgroup.done();
     }
 
     /// Returns the next id to be used when sending a JSON-RPC message. This ID allows
@@ -270,13 +266,8 @@ impl Client {
     /// attempts were successful. The client will be shut down when the passed
     /// context is terminated.
     pub async fn connect(&mut self) -> Result<(), RpcClientError> {
-        if !*self.is_ws_disconnected.read().await {
+        if !*self.is_ws_disconnected.read().await || self.conn.is_http_mode() {
             return Err(RpcClientError::WebsocketAlreadyConnected);
-        }
-
-        let mut config = self.configuration.write().await;
-        if config.http_post_mode {
-            return Err(RpcClientError::ClientNotConnected);
         }
 
         let user_command_channel = mpsc::channel(1);
@@ -287,17 +278,17 @@ impl Client {
         self.disconnect_ws = disconnect_ws_channel.0;
         self.ws_disconnected_acknowledgement = ws_disconnect_acknowledgement.1;
 
-        let ws = match config.ws_split_stream().await {
+        let ws = match self.conn.ws_split_stream().await {
             Ok(ws) => ws,
 
             Err(e) => return Err(e),
         };
-        drop(config);
 
         // Change websocket disconnected state.
-        let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
-        *is_ws_disconnected = false;
-        drop(is_ws_disconnected);
+        {
+            let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
+            *is_ws_disconnected = false;
+        }
 
         self.ws_handler(
             user_command_channel.1,
@@ -331,28 +322,26 @@ impl Client {
         let channel = mpsc::channel(1);
 
         let cmd = super::infrastructure::Command {
-            id: id,
+            id,
             rpc_message: msg,
             user_channel: channel.0,
         };
 
-        let config = self.configuration.read().await;
-
-        let mut server_channel = if config.http_post_mode {
+        let server_channel = if self.conn.is_http_mode() {
             self.http_user_command.clone()
         } else {
             self.ws_user_command.clone()
         };
 
         match server_channel.send(cmd).await {
-            Ok(_) => return Ok((id, channel.1)),
+            Ok(_) => Ok((id, channel.1)),
 
             Err(e) => {
                 warn!("error sending custom command to server, error: {}", e);
 
-                return Err(RpcClientError::RpcDisconnected);
+                Err(RpcClientError::RpcDisconnected)
             }
-        };
+        }
     }
 
     /// Marshals clients methods and parameters to a valid JSON RPC command also returning command ID for mapping.
@@ -363,26 +352,27 @@ impl Client {
     ) -> (u64, Result<Vec<u8>, serde_json::Error>) {
         let id = self.next_id();
 
-        let request = crate::dcrjson::chain_command_result::JsonRequest {
+        let request = result_types::JsonRequest {
             jsonrpc: "1.0",
-            id: id,
-            method: method,
-            params: params,
+            id,
+            method,
+            params,
         };
 
-        return (id, serde_json::to_vec(&request));
+        (id, serde_json::to_vec(&request))
     }
 
     /// Disconnects RPC server, deletes command queue and errors any pending request by client.
     pub async fn disconnect(&mut self) {
         // Return if websocket is disconnected.
-        let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
-        if *is_ws_disconnected == true {
-            return;
-        }
+        {
+            let mut is_ws_disconnected = self.is_ws_disconnected.write().await;
+            if *is_ws_disconnected {
+                return;
+            }
 
-        *is_ws_disconnected = true;
-        drop(is_ws_disconnected);
+            *is_ws_disconnected = true;
+        }
 
         if self.disconnect_ws.send(()).await.is_err() {
             warn!("error sending disconnect command to webserver, disconnect_ws closed.");
@@ -398,9 +388,7 @@ impl Client {
     }
 
     async fn unregister_notification_state(&mut self) {
-        let mut notification_state = self.notification_state.write().await;
-
-        notification_state.clear();
+        self.notification_state.write().await.clear()
     }
 
     /// Return websocket disconnected state to webserver.
@@ -408,20 +396,14 @@ impl Client {
         *self.is_ws_disconnected.read().await
     }
 
-    /// Blocks until the client is disconnected and connection closed.
-    pub fn wait_for_shutdown(&self) {
-        self.waitgroup.wait();
-    }
-
     /// Clear queue, error commands channels and close websocket connection normally.
     /// Shutdown broadcasts a disconnect command to websocket continuosly and waits for waitgroup block to be
     /// closed before exiting.
-    pub async fn shutdown(&mut self) {
+    pub async fn shutdown(mut self) {
         if *self.is_ws_disconnected.read().await {
             info!("Websocket already disconnected. Closing connection.");
-
             return;
-        };
+        }
 
         info!("Shutting down websocket.");
 
@@ -429,89 +411,6 @@ impl Client {
 
         self.disconnect().await;
 
-        info!("Websocket disconnected.");
-
-        self.waitgroup.done();
+        info!("Websocket shutdown.");
     }
-}
-
-fn create_http_client(
-    config: &super::connection::ConnConfig,
-) -> Result<reqwest::Client, RpcClientError> {
-    let proxy = match &config.proxy_host {
-        Some(proxy) => {
-            let proxy = reqwest::Proxy::all(proxy);
-
-            let proxy = match proxy {
-                Ok(e) => e,
-
-                Err(e) => {
-                    warn!("Error setting up RPC proxy connection, error: {}", e);
-                    return Err(RpcClientError::ProxyConnection);
-                }
-            };
-
-            let proxy = if config.proxy_password.len() > 0 || config.proxy_username.len() > 0 {
-                proxy.basic_auth(&config.proxy_username, &config.proxy_password)
-            } else {
-                proxy
-            };
-
-            Some(proxy)
-        }
-
-        None => None,
-    };
-
-    let mut request_builder = reqwest::Client::builder();
-    request_builder = match proxy {
-        Some(e) => request_builder.proxy(e),
-
-        None => request_builder,
-    };
-
-    request_builder = match reqwest::Certificate::from_pem(config.certificates.as_bytes()) {
-        Ok(certificate) => {
-            // ToDo: check if host name is an ip before accepting invalid hostname.
-            request_builder
-                .add_root_certificate(certificate)
-                .danger_accept_invalid_certs(true)
-        }
-
-        Err(e) => {
-            warn!("Error parsing tls certificate, error: {}", e);
-            return Err(RpcClientError::HttpTlsCertificate(e));
-        }
-    };
-
-    let mut headers = reqwest::header::HeaderMap::new();
-
-    let header_value = match reqwest::header::HeaderValue::from_str("application/json") {
-        Ok(e) => e,
-        Err(e) => {
-            warn!(
-                "Failed to set header content type in HTTP Post mode, error: {}",
-                e
-            );
-            return Err(RpcClientError::HttpHeader(e));
-        }
-    };
-
-    headers.append(reqwest::header::CONTENT_TYPE, header_value);
-
-    let request_builder = request_builder.default_headers(headers);
-
-    let http_client = match request_builder.build() {
-        Ok(e) => {
-            info!("Successful HTTP handshake");
-            e
-        }
-
-        Err(e) => {
-            info!("Error building HTTP handshake, error: {}", e);
-            return Err(RpcClientError::HttpHandshake(e));
-        }
-    };
-
-    return Ok(http_client);
 }

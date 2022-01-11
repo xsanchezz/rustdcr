@@ -1,25 +1,50 @@
 //! Client connection.
-//! Consists of all websocket cofigurations.
+//! Consists all websocket cofigurations.
+
+use crate::dcrjson::result_types::JsonResponse;
+
+use super::infrastructure::Command;
 
 use {
-    super::RpcClientError,
-    futures::{stream::SplitStream, StreamExt},
+    super::error::RpcClientError,
+    async_trait::async_trait,
+    futures_util::stream::SplitSink,
+    futures_util::stream::{SplitStream, StreamExt},
     httparse::Status,
+    log::info,
     log::warn,
     tokio::{
         io::{AsyncReadExt, AsyncWriteExt},
         net::TcpStream,
         sync::mpsc,
     },
+    tokio_native_tls::native_tls,
     tokio_tungstenite::{
-        stream::Stream,
-        tungstenite::{handshake::client::Request, handshake::headers, Message},
+        tungstenite::{handshake::headers, http::Request, Message},
         MaybeTlsStream, WebSocketStream,
     },
 };
 
+/// RPC connection trait.
+#[async_trait]
+pub trait RPCConn: Sized + Send + Sync + Clone {
+    /// Creates a websocket connection and returns a websocket
+    ///  write feeder and a websocket reader. An asynchronous
+    /// thread is spawn to forward messages sent from the ws_write feeder.
+    async fn ws_split_stream(
+        &mut self,
+    ) -> Result<(SplitStream<Websocket>, SplitSink<Websocket, Message>), RpcClientError>;
+    async fn handle_post_methods(
+        &self,
+        http_user_command: mpsc::Receiver<Command>,
+    ) -> Result<(), RpcClientError>;
+    fn is_http_mode(&self) -> bool;
+    fn disable_connect_on_new(&self) -> bool;
+    fn disable_auto_reconnect(&self) -> bool;
+}
+
 /// Describes the connection configuration parameters for the client.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConnConfig {
     /// Full websocket url which consists host and port.
     pub host: String,
@@ -90,36 +115,151 @@ impl Default for ConnConfig {
     }
 }
 
-impl ConnConfig {
-    /// Creates a websocket connection and returns a websocket write feeder and a websocket reader. An asynchronous
-    /// thread is spawn to forward messages sent from the ws_write feeder.
-    pub async fn ws_split_stream(
+/// TLS or TCP Websocket connection connection.
+pub type Websocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+#[async_trait]
+impl RPCConn for ConnConfig {
+    async fn ws_split_stream(
         &mut self,
-    ) -> Result<
-        (
-            SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-            mpsc::Sender<Message>,
-        ),
-        RpcClientError,
-    > {
+    ) -> Result<(SplitStream<Websocket>, SplitSink<Websocket, Message>), RpcClientError> {
         let ws = match self.dial_websocket().await {
             Ok(ws) => ws,
-
             Err(e) => return Err(e),
         };
 
         // Split websocket to a sink which sends websocket messages to server and a stream which receives websocket messages.
-        let (ws_sender, ws_receiver) = ws.split();
+        let (ws_send, ws_rcv) = ws.split();
 
-        // A bounded channel that forwards messages to the websocket sender.
-        let (ws_tx, ws_rx) = mpsc::channel(1);
-
-        // websocket receiver ws_rx is consumed here and is closed if websocket is closed.
-        tokio::spawn(ws_rx.map(Ok).forward(ws_sender));
-
-        Ok((ws_receiver, ws_tx))
+        Ok((ws_rcv, ws_send))
     }
 
+    async fn handle_post_methods(
+        &self,
+        mut http_user_command: mpsc::Receiver<Command>,
+    ) -> Result<(), RpcClientError> {
+        let client = self.create_http_client()?;
+
+        let on_error =
+            |err: String, response: JsonResponse, channel: mpsc::Sender<JsonResponse>| async move {
+                if let Err(e) = channel.send(response).await {
+                    warn!(
+                    "({}) Receiving channel closed abruptly on sending error message, error: {}",
+                    err, e
+                );
+                }
+            };
+
+        while let Some(cmd) = http_user_command.recv().await {
+            let url = if self.disable_tls {
+                format!("http://{}", self.host)
+            } else {
+                format!("https://{}", self.host)
+            };
+
+            // Server response.
+            let mut json_response = JsonResponse::default();
+
+            let wrapped_request = client
+                .post(&url)
+                .basic_auth(&self.user, Some(&self.password))
+                .body(cmd.rpc_message)
+                .build();
+
+            let request = match wrapped_request {
+                Ok(e) => e,
+
+                Err(e) => {
+                    warn!("Error creating HTTP Post request, error: {}", e);
+
+                    // On error, errors are logged and channel is closed.
+                    json_response.error =
+                        serde_json::Value::String("Error creating HTTP Post request".to_string());
+
+                    on_error(
+                        "HTTP request handshake".to_string(),
+                        json_response,
+                        cmd.user_channel,
+                    )
+                    .await;
+                    continue;
+                }
+            };
+
+            let response = match client.execute(request).await {
+                Ok(e) => e.bytes().await,
+
+                Err(e) => {
+                    warn!("Error sending RPC message to server, error: {}", e);
+                    json_response.error = serde_json::Value::String(format!(
+                        "Error sending http request, error: {}",
+                        e
+                    ));
+
+                    on_error(
+                        "HTTP request execute".to_string(),
+                        json_response,
+                        cmd.user_channel,
+                    )
+                    .await;
+
+                    continue;
+                }
+            };
+
+            let bytes = match response {
+                Ok(e) => e,
+
+                Err(e) => {
+                    warn!("Error retrieving HTTP server response, error: {}", e);
+                    on_error("HTTP response".to_string(), json_response, cmd.user_channel).await;
+
+                    continue;
+                }
+            };
+
+            // Marshal server result to a json response.
+            json_response = match serde_json::from_slice(&bytes) {
+                Ok(m) => m,
+
+                Err(e) => {
+                    warn!(
+                        "Error unmarshalling binary result, error: {}. \n Message: {:?}",
+                        e,
+                        std::str::from_utf8(&bytes)
+                    );
+
+                    continue;
+                }
+            };
+
+            let channel = cmd.user_channel;
+
+            if let Err(e) = channel.send(json_response).await {
+                warn!(
+                    "Receiving request channel closed abruptly on HTTP post mode, error: {}",
+                    e
+                )
+            }
+        }
+
+        Ok(())
+    }
+
+    fn disable_connect_on_new(&self) -> bool {
+        self.disable_connect_on_new
+    }
+
+    fn is_http_mode(&self) -> bool {
+        self.http_post_mode
+    }
+
+    fn disable_auto_reconnect(&self) -> bool {
+        self.disable_auto_reconnect
+    }
+}
+
+impl ConnConfig {
     /// Invokes a websocket stream to rpcclient using optional TLS and socks proxy.
     async fn dial_websocket(
         &mut self,
@@ -159,28 +299,24 @@ impl ConnConfig {
                     .body(());
 
                 match wrapped_request {
-                    Ok(request) => {
-                        match tokio_tungstenite::client_async(request, stream).await {
-                            Ok(websokcet) => {
-                                return Ok(websokcet.0);
-                            }
+                    Ok(request) => match tokio_tungstenite::client_async(request, stream).await {
+                        Ok(websokcet) => Ok(websokcet.0),
 
-                            Err(e) => {
-                                warn!("Error creating websocket handshake, error: {}", e);
-                                return Err(RpcClientError::RpcHandshake(e));
-                            }
-                        };
-                    }
+                        Err(e) => {
+                            warn!("Error creating websocket handshake, error: {}", e);
+                            Err(RpcClientError::RpcHandshake(e))
+                        }
+                    },
 
                     Err(e) => {
                         warn!("Error building RPC authenticating request, error: {}.", e);
 
-                        return Err(RpcClientError::RpcAuthenticationRequest);
+                        Err(RpcClientError::RpcAuthenticationRequest)
                     }
                 }
             }
 
-            Err(e) => return Err(e),
+            Err(e) => Err(e),
         }
     }
 
@@ -200,7 +336,7 @@ impl ConnConfig {
         };
 
         if self.disable_tls {
-            return Ok(Stream::Plain(tcp_stream));
+            return Ok(MaybeTlsStream::Plain(tcp_stream));
         }
 
         let mut tls_connector_builder = native_tls::TlsConnector::builder();
@@ -234,17 +370,17 @@ impl ConnConfig {
         };
 
         match wrapped_tls_stream {
-            Ok(tls_stream) => return Ok(Stream::Tls(tls_stream)),
+            Ok(tls_stream) => Ok(MaybeTlsStream::NativeTls(tls_stream)),
 
             Err(e) => {
                 warn!("Error creating tls stream, error: {}", e);
-                return Err(RpcClientError::TlsStream(e));
+                Err(RpcClientError::TlsStream(e))
             }
         }
     }
 
-    /// Initiates proxy connection if proxy credentials are specified. CONNECT header is sent
-    /// to proxy server using socks5.
+    /// Initiates proxy connection if proxy credentials are specified.
+    /// CONNECT header is sent to proxy server using socks5.
     fn add_proxy_header(&mut self, buffered_header: &mut Vec<u8>) {
         buffered_header.extend_from_slice(
             format!(
@@ -264,14 +400,14 @@ impl ConnConfig {
         header_string.push_str(&base64::encode(login.as_str()));
 
         buffered_header.extend_from_slice(
-            &format!("{}: {}\r\n", "proxy-authorization", header_string).as_bytes(),
+            format!("{}: {}\r\n", "proxy-authorization", header_string).as_bytes(),
         );
 
         // Add trailing empty line
         buffered_header.extend_from_slice(b"\r\n");
     }
 
-    /// Dials stream connection, sending http header to stream if user is using a proxy server for websocket connection.
+    /// Dial TCP connection, sending headers.
     async fn dial_connection(
         &self,
         buffered_header: &mut Vec<u8>,
@@ -303,7 +439,6 @@ impl ConnConfig {
                     return Err(RpcClientError::ProxyAuthentication(e));
                 }
             };
-
             let mut header_buffer = [httparse::EMPTY_HEADER; headers::MAX_HEADERS];
             let mut response = httparse::Response::new(&mut header_buffer);
 
@@ -327,6 +462,83 @@ impl ConnConfig {
 
                 Err(e) => return Err(RpcClientError::RpcProxyResponseParse(e)),
             };
+        }
+    }
+
+    fn create_http_client(&self) -> Result<reqwest::Client, RpcClientError> {
+        let proxy = match self.proxy_host.clone() {
+            Some(proxy) => {
+                let proxy = reqwest::Proxy::all(proxy);
+
+                let proxy = match proxy {
+                    Ok(e) => e,
+
+                    Err(e) => {
+                        warn!("Error setting up RPC proxy connection, error: {}", e);
+                        return Err(RpcClientError::ProxyConnection);
+                    }
+                };
+
+                let proxy = if !self.proxy_password.is_empty() || !self.proxy_username.is_empty() {
+                    proxy.basic_auth(&self.proxy_username, &self.proxy_password)
+                } else {
+                    proxy
+                };
+
+                Some(proxy)
+            }
+
+            None => None,
+        };
+
+        let mut request_builder = reqwest::Client::builder();
+        request_builder = match proxy {
+            Some(e) => request_builder.proxy(e),
+
+            None => request_builder,
+        };
+
+        request_builder = match reqwest::Certificate::from_pem(self.certificates.as_bytes()) {
+            Ok(certificate) => {
+                // ToDo: check if host name is an ip before accepting invalid hostname.
+                request_builder
+                    .add_root_certificate(certificate)
+                    .danger_accept_invalid_certs(true)
+            }
+
+            Err(e) => {
+                warn!("Error parsing tls certificate, error: {}", e);
+                return Err(RpcClientError::HttpTlsCertificate(e));
+            }
+        };
+
+        let mut headers = reqwest::header::HeaderMap::new();
+
+        let header_value = match reqwest::header::HeaderValue::from_str("application/json") {
+            Ok(e) => e,
+            Err(e) => {
+                warn!(
+                    "Failed to set header content type in HTTP Post mode, error: {}",
+                    e
+                );
+                return Err(RpcClientError::HttpHeader(e));
+            }
+        };
+
+        headers.append(reqwest::header::CONTENT_TYPE, header_value);
+
+        let request_builder = request_builder.default_headers(headers);
+
+        match request_builder.build() {
+            Ok(e) => {
+                info!("Successful HTTP handshake");
+                Ok(e)
+            }
+
+            Err(e) => {
+                info!("Error building HTTP handshake, error: {}", e);
+                Err(RpcClientError::HttpHandshake(e))
+            }
         }
     }
 }

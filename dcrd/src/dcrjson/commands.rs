@@ -1,6 +1,8 @@
-//! RPC Types.
+//! RPC Commands.
 //! Decred JSON RPC notification commands. Also contains standard commands to interact with lower versions such
 //! as bitcoind.
+
+#![allow(dead_code)]
 
 /// Notifies that a block has been connected.
 pub(crate) const NOTIFICATION_METHOD_BLOCK_CONNECTED: &str = "blockconnected";
@@ -30,8 +32,6 @@ pub(crate) const METHOD_NOTIFIY_NEW_WORK: &str = "notifywork";
 /// Registers the client to receive either a txaccepted or a txacceptedverbose notification
 /// when a new transaction is accepted into the mempool.
 pub(crate) const METHOD_NEW_TX: &str = "notifynewtransactions";
-/// Registers the client to receive a stakedifficulty notification when the stake difficulty is updated.
-pub(crate) const METHOD_STAKE_DIFFICULTY: &str = "notifystakedifficulty";
 
 /// Returns information about the current state of the block chain.
 pub(crate) const METHOD_GET_BLOCKCHAIN_INFO: &str = "getblockchaininfo";
@@ -39,3 +39,6 @@ pub(crate) const METHOD_GET_BLOCKCHAIN_INFO: &str = "getblockchaininfo";
 pub(crate) const METHOD_GET_BLOCK_COUNT: &str = "getblockcount";
 /// Returns hash of the block in best block chain at the given height.
 pub(crate) const METHOD_GET_BLOCK_HASH: &str = "getblockhash";
+pub(crate) const METHOD_GET_BLOCK: &str = "getblock";
+pub(crate) const METHOD_DECODE_RAW_TRANSACTION: &str = "decoderawtransaction";
+pub(crate) const METHOD_ESTIMATE_SMART_FEE: &str = "estimatesmartfee";

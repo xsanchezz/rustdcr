@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Time required to retry connecting to websocket.
 pub(super) const CONNECTION_RETRY_INTERVAL_SECS: std::time::Duration =
     std::time::Duration::from_secs(10);

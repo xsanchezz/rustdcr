@@ -11,6 +11,7 @@ use {crate::chaincfg::chainhash::Hash, std::collections::HashMap};
 /// on the client instance since the input reader goroutine blocks until the callback has completed.
 /// Doing so will result in a deadlock situation.
 #[derive(Default)]
+#[allow(clippy::type_complexity)]
 pub struct NotificationHandlers {
     /// on_client_connected callback function is invoked when the client connects or
     /// reconnects to the RPC server.
@@ -70,18 +71,11 @@ pub struct NotificationHandlers {
     /// It will only be invoked if a preceding call to notify_new_transactions
     /// with the verbose flag set to true has been made to register for
     /// the notification and the function is non-nil.
-    pub on_tx_accepted_verbose:
-        Option<fn(tx_details: crate::dcrjson::chain_command_result::TxRawResult)>,
-
-    /// on_stake_difficulty callback function is invoked when a block is connected
-    /// to the longest `best` chain  and a new difficulty is calculated. It will only
-    /// be invoked if a preceding call to NotifyStakeDifficulty has been
-    /// made to register for the notification and the function is non-nil.
-    pub on_stake_difficulty: Option<fn(hash: Hash, height: i64, stake_diff: i64)>,
+    pub on_tx_accepted_verbose: Option<fn(tx_details: crate::dcrjson::result_types::TxRawResult)>,
 
     /// on_unknown_notification callback function is invoked when an unrecognized notification is received.
     /// This typically means the notification handling code for this package needs to be updated for a new
     /// notification type or the caller is using a custom notification this package does not know about.
     pub on_unknown_notification:
-        Option<fn(method: String, params: crate::dcrjson::chain_command_result::JsonResponse)>,
+        Option<fn(method: String, params: crate::dcrjson::result_types::JsonResponse)>,
 }

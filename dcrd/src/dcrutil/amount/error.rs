@@ -1,5 +1,6 @@
 /// Amount related errors.
 pub enum AmountError {
+    /// Invalid Coin Amount
     InvalidCoinAmount,
 }
 
