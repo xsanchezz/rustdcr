@@ -21,7 +21,7 @@ mod dcr_types_test {
                     "txid": "",
                     "vout": 0,
                     "tree": 0,
-                    "sequence":4294967295 as u32,
+                    "sequence":4294967295_u32,
                     "amountin":0.0,
                     "blockheight": 0,
                     "blockindex":0,
@@ -41,7 +41,7 @@ mod dcr_types_test {
                     "txid":"123",
                     "vout":1,
                     "tree":0,
-                    "sequence":4294967295 as u32,
+                    "sequence":4294967295_u32,
                     "amountin":0.0,
                     "blockheight":0,
                     "blockindex":0,
@@ -62,7 +62,7 @@ mod dcr_types_test {
 
         for (i, test) in tests.iter().enumerate() {
             let marshalled = serde_json::to_value(&test.result)
-                .expect(&format!("test {} {} failed:", i, test.name));
+                .unwrap_or_else(|_| panic!("test {} {} failed:", i, test.name));
 
             assert!(
                 marshalled.eq(&test.expected),

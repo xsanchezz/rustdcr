@@ -106,7 +106,7 @@ mod conntest {
             &mut self,
         ) -> Result<(SplitStream<Websocket>, SplitSink<Websocket, Message>), RpcClientError>
         {
-            let (ws_stream, _) = connect_async("ws://127.0.0.1:3012")
+            let (ws_stream, _) = connect_async("ws://0.0.0.0:3012")
                 .await
                 .expect("Failed to connect");
             println!("WebSocket handshake has been successfully completed");

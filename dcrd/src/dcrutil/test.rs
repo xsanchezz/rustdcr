@@ -45,7 +45,7 @@ mod app_data_dir {
 
         assert_eq!(
             Some(home_dir),
-            crate::dcrutil::app_data::get_app_data_dir(&mut "myapp", false)
+            crate::dcrutil::app_data::get_app_data_dir("myapp", false)
         )
     }
 
@@ -62,7 +62,7 @@ mod app_data_dir {
 
         assert_eq!(
             Some(home_dir),
-            crate::dcrutil::app_data::get_app_data_dir(&mut "myapp", true)
+            crate::dcrutil::app_data::get_app_data_dir("myapp", true)
         )
     }
 
@@ -72,13 +72,13 @@ mod app_data_dir {
         let mut home_dir =
             dirs::home_dir().expect("unable to find home directory in other OS arch");
 
-        assert_eq!(home_dir.as_os_str().is_empty(), false);
+        assert!(!home_dir.as_os_str().is_empty());
 
         home_dir.push(".myapp");
 
         assert_eq!(
             Some(home_dir),
-            crate::dcrutil::app_data::get_app_data_dir(&mut "myapp", false)
+            crate::dcrutil::app_data::get_app_data_dir("myapp", false)
         )
     }
 
@@ -94,7 +94,7 @@ mod app_data_dir {
 
         assert_eq!(
             Some(home_dir),
-            crate::dcrutil::app_data::get_app_data_dir(&mut "myapp", false)
+            crate::dcrutil::app_data::get_app_data_dir("myapp", false)
         )
     }
 }

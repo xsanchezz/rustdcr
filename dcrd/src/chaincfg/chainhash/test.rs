@@ -62,7 +62,7 @@ mod chain_hash {
         }
 
         // Set hash from byte slice and ensure contents match.
-        hash.set_bytes(hash_str.clone().bytes().to_vec())
+        hash.set_bytes(hash_str.bytes().to_vec())
             .expect("SetBytes: ");
 
         if !hash.is_equal(&hash_str) {
@@ -178,8 +178,7 @@ mod chain_hash {
             tests.len()
         );
 
-        let mut i = 0;
-        for test in tests.iter() {
+        for (i, test) in tests.iter().enumerate() {
             match Hash::new_from_str(test.hash_str.as_str()) {
                 // If test is an Ok, check if equal.
                 Ok(e) => assert_eq!(
@@ -205,8 +204,6 @@ mod chain_hash {
                     }
                 },
             }
-
-            i += 1;
         }
     }
 }
